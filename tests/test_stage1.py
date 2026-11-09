@@ -115,3 +115,63 @@ def test_stage1_guard_refuses_bulk_and_shell(cmd):
     backend = _guard(FakeBackend())
     with pytest.raises(PermissionError):
         backend._req(cmd)
+
+
+class FakeBackupBackend:
+    def __init__(self, image):
+        from a7r.backup import BackupFile
+        self.bk = BackupFile(image)
+        self.values = {pid: p.data for pid, p in self.bk.properties.items()}
+        self.synced = False
+
+    def getBackupData(self):
+        import struct
+        img = bytearray(self.bk.image)
+        for pid, p in self.bk.properties.items():
+            pass
+        return self._rebuild()
+
+    def _rebuild(self):
+        from tests.bkbuilder import build_backup
+        subs = {}
+        for pid, data in self.values.items():
+            subs.setdefault(pid >> 16, {})[pid & 0xFFFF] = data
+        top = max(subs)
+        layout = []
+        for s in range(top + 1):
+            entries = subs.get(s, {})
+            n = max(entries) + 1 if entries else 0
+            layout.append([(0, "fixed", entries[i]) if i in entries else None for i in range(n)])
+        return build_backup(layout)
+
+    def readBackup(self, pid):
+        return self.values[pid]
+
+    def writeBackup(self, pid, data):
+        self.values[pid] = data
+
+    def syncBackup(self):
+        self.synced = True
+
+
+def test_write_session_writes_syncs_and_reports(tmp_path):
+    from a7r.stage1 import write_session
+    from tests.test_stage0 import model_backup
+    img = model_backup()
+    backend = FakeBackupBackend(img)
+    backend.values[0x01070012] = b"\x02"
+    report = write_session(backend, {0x01070012: b"\x03"}, tmp_path, "ILCE-7R")
+    assert backend.values[0x01070012] == b"\x03"
+    assert backend.synced
+    assert report["readback_ok"] and report["unexpected"] == []
+    assert (tmp_path / "before.bin").exists() and (tmp_path / "after.bin").exists()
+
+
+def test_write_session_refuses_wrong_model_before_writing(tmp_path):
+    from a7r.stage1 import write_session
+    from tests.test_stage0 import model_backup
+    backend = FakeBackupBackend(model_backup(b"ILCE-7S"))
+    backend.values[0x01070012] = b"\x02"
+    with pytest.raises(ValueError, match="ILCE-7S"):
+        write_session(backend, {0x01070012: b"\x03"}, tmp_path, "ILCE-7R")
+    assert backend.values[0x01070012] == b"\x02"

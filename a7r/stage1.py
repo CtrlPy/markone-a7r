@@ -113,43 +113,66 @@ def _guard(backend):
     return _stage0_guard(backend, ALLOWED_REQUESTS)
 
 
-def run(pmca_root, outdir, planned, expected_model):
+def write_session(backend, planned, outdir, expected_model):
+    """Write planned properties through a backup backend and report.
+
+    backend needs getBackupData, readBackup, writeBackup and syncBackup (PMCA-RE
+    updater-mode or service-mode backends both qualify).
+    """
+    before = backend.getBackupData()
+    (outdir / "before.bin").write_bytes(before)
+    check_backup(before, expected_model)
+    old = {pid: backend.readBackup(pid) for pid in planned}
+    for pid, data in planned.items():
+        print(f"Writing {pid:#010x}: {old[pid].hex()} -> {data.hex()}")
+        backend.writeBackup(pid, data)
+    backend.syncBackup()
+    readback = {pid: backend.readBackup(pid) for pid in planned}
+    after = backend.getBackupData()
+    (outdir / "after.bin").write_bytes(after)
+    check_backup(after, expected_model)
+    return {
+        "old": {f"{k:#010x}": v.hex() for k, v in old.items()},
+        "readback": {f"{k:#010x}": v.hex() for k, v in readback.items()},
+        "readback_ok": all(readback[k] == v for k, v in planned.items()),
+        "unexpected": [(f"{p:#010x}", o.hex() if o else None, n.hex() if n else None)
+                       for p, o, n in unexpected_changes(before, after, planned)],
+    }
+
+
+def run(pmca_root, outdir, planned, expected_model, mode="updater"):
+    """mode "updater" reboots the camera into updater mode (clears RAM patches);
+    mode "service" writes on the running system through the senser channel."""
     sys.path.insert(0, str(pmca_root))
-    from pmca.commands.usb import updaterShellCommand
+    from pmca.commands.usb import senserShellCommand, updaterShellCommand
+    from pmca.platform.backend.senser import SenserPlatformBackend
     from pmca.platform.backend.usb import UsbPlatformBackend
 
     outdir.mkdir(parents=True, exist_ok=False)
     report = {}
 
-    def complete(device):
+    def complete_updater(device):
         backend = _guard(UsbPlatformBackend(device))
         backend.start()
         try:
-            before = backend.getBackupData()
-            (outdir / "before.bin").write_bytes(before)
-            check_backup(before, expected_model)
-            old = {pid: backend.readBackup(pid) for pid in planned}
-            for pid, data in planned.items():
-                print(f"Writing {pid:#010x}: {old[pid].hex()} -> {data.hex()}")
-                backend.writeBackup(pid, data)
-            backend.syncBackup()
-            readback = {pid: backend.readBackup(pid) for pid in planned}
-            after = backend.getBackupData()
-            (outdir / "after.bin").write_bytes(after)
-            check_backup(after, expected_model)
-            report["old"] = {f"{k:#010x}": v.hex() for k, v in old.items()}
-            report["readback"] = {f"{k:#010x}": v.hex() for k, v in readback.items()}
-            report["readback_ok"] = all(readback[k] == v for k, v in planned.items())
-            report["unexpected"] = [
-                (f"{p:#010x}", o.hex() if o else None, n.hex() if n else None)
-                for p, o, n in unexpected_changes(before, after, planned)]
+            report.update(write_session(backend, planned, outdir, expected_model))
         finally:
             backend.stop()
 
-    updaterShellCommand(complete=complete)
+    def complete_service(camera):
+        backend = SenserPlatformBackend(camera)
+        backend.start()
+        report.update(write_session(backend, planned, outdir, expected_model))
+
+    if mode == "updater":
+        updaterShellCommand(complete=complete_updater)
+    elif mode == "service":
+        senserShellCommand(complete=complete_service)
+    else:
+        raise ValueError(mode)
     if "readback_ok" not in report:
         raise SystemExit("Write session did not complete; check the camera and the output above.")
-    meta = {"date": datetime.datetime.now().isoformat(timespec="seconds"),
+    meta = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "mode": mode,
             "planned": {f"{k:#010x}": v.hex() for k, v in planned.items()}, **report}
     write_manifest(outdir, meta)
     print(json.dumps(meta, indent=2))
@@ -165,13 +188,15 @@ def main(argv=None):
                     help="ID=HEXBYTES, e.g. 0x01070012=03")
     ap.add_argument("--plan-file", type=Path, help="JSON {id: hexbytes} from python -m a7r.formats")
     ap.add_argument("--model", default="ILCE-7R")
+    ap.add_argument("--mode", choices=["updater", "service"], default="updater",
+                    help="service writes without rebooting (keeps RAM patches)")
     args = ap.parse_args(argv)
     changes = list(args.changes)
     if args.plan_file:
         changes += [(int(k, 16), bytes.fromhex(v)) for k, v in json.loads(args.plan_file.read_text()).items()]
     if not changes:
         ap.error("nothing to write: give --set or --plan-file")
-    run(args.pmca_root, args.outdir, plan(changes), args.model)
+    run(args.pmca_root, args.outdir, plan(changes), args.model, args.mode)
     return 0
 
 
