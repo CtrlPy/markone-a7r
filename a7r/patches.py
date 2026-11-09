@@ -46,5 +46,18 @@ LIBOBJ_ASPECT_MENU_UNLOCK = BytePatch(
     edits=[(0x903B98, bytes.fromhex("041e"), bytes.fromhex("0024"))],
 )
 
+# The Aspect Ratio menu item list is chosen by
+# CmnViewSettingNodeStlImageAspectRatio::_getSubNode() (CautionConfig.so) from
+# the read-only UI model type in Backup.bin 0x01070316 (A7R: 27). If bit
+# (1 << type) is in 0x5ca00002 the list is Type01 = {3:2, 16:9}; otherwise the
+# Default list {3:2, 16:9, 4:3, 1:1}. Clear bit 27 in this function's literal
+# only (file/vaddr 0x110f5c); other menus that read the type are untouched.
+CAUTIONCONFIG_ASPECT_MENU_FULL_LIST = BytePatch(
+    name="cautionconfig-aspect-menu-full-list",
+    file="CautionConfig.so",
+    sha256="46bee45f7b47409811e943620c9fb761886dd352b40974503b5bc2e396e14e38",
+    edits=[(0x110F5C, bytes.fromhex("0200a05c"), bytes.fromhex("0200a054"))],
+)
+
 PATCHES = {p.name: p for p in (IMAGE_SIZE_ASPECT_FALLBACK, LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK,
-                                LIBOBJ_ASPECT_MENU_UNLOCK)}
+                                LIBOBJ_ASPECT_MENU_UNLOCK, CAUTIONCONFIG_ASPECT_MENU_FULL_LIST)}

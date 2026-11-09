@@ -52,3 +52,9 @@ def test_aspect_menu_unlock_patch_targets_isValueGrayedOut_result():
     from a7r.patches import LIBOBJ_ASPECT_MENU_UNLOCK as p
     assert p.file == "libObj.so"
     assert p.edits == [(0x903B98, bytes.fromhex("041e"), bytes.fromhex("0024"))]
+
+
+def test_aspect_menu_full_list_patch_clears_bit_27_in_one_literal():
+    from a7r.patches import CAUTIONCONFIG_ASPECT_MENU_FULL_LIST as p
+    assert p.file == "CautionConfig.so"
+    assert p.edits == [(0x110F5C, bytes.fromhex("0200a05c"), bytes.fromhex("0200a054"))]

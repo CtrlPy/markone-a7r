@@ -104,3 +104,12 @@ def test_libobj_patches_apply_to_stock_3_20(name):
     raw = LIBOBJ.read_bytes()
     out = apply_patch(p, raw)
     assert sum(a != b for a, b in zip(raw, out)) <= 2
+
+
+def test_cautionconfig_patch_applies_to_stock_3_20():
+    from a7r.patch import apply_patch
+    from a7r.patches import PATCHES
+    lib = ROOT / "0700_part_image" / "dev" / "nflasha15_unpacked_unpacked" / "lib" / "CautionConfig.so"
+    raw = lib.read_bytes()
+    out = apply_patch(PATCHES["cautionconfig-aspect-menu-full-list"], raw)
+    assert sum(a != b for a, b in zip(raw, out)) == 1
