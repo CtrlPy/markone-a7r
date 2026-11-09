@@ -5,3 +5,8 @@
 | 2026-11-09 | 3.20 | fwtool.py on `Update_ILCE7RV320.exe` | Fails: `Unknown exe file` (2023 re-packaged wrapper). |
 | 2026-11-09 | 3.20 | `tools/extract_dat.py` → fwtool on DAT | OK. CXD90014, model 0x41030034. Partitions nflasha3/5/7/15/16 unpacked (5 not unpacked). |
 | 2026-11-09 | 3.20 | `strings` for aspect | Found `STILL_ASPECT_1_1`, `STILL_ASPECT_4_3` (libObj.so), `StillImageSizeSizeL1_1_MR` nodes (CautionConfig.so), `PARAMID_SYS_DATA_STILL_FORMAT_ASPECT_SET` (orb-server). Not yet known if enabled for A7R. |
+| 2026-11-09 | 3.20 | Re-extract and unpack on Fedora 45 (Python 3.15 venv) | OK, updater SHA-256 matches. 1.1 GB unpacked into `fw/out`. |
+| 2026-11-09 | 3.20 | Parse `0110_backup/.../ICH_UUG/*.bin` with `a7r.backup` | 11 factory Backup.bin templates, BK4, 403 subsystems, 15 868 properties each. |
+| 2026-11-09 | 3.20 | `a7r.bkid` on `lib/libmprctrl.so` | 711 BKID names → ids; entry layout `{id, name}` (the `{name, id}` reading gave inconsistent sizes, rejected). |
+| 2026-11-09 | 3.20 | Decode `BKID_IMAGING_PXSZ_STL_*` | 3:2 / 16:9 match A7R spec (7360×4912, 7360×4144); 1:1, 4:3, 17:9 slots exist and are zero. Same for JPEG size estimates. See `docs/findings/aspect-ratio.md`. |
+| 2026-11-09 | 3.20 | Disassemble `WrapperImageAspect`, `CustomImageAspectRatio::isValueGrayedOut` (capstone) | GUI maps 4 aspect values; per-value inhibit ids 0x96/0x94/0x95/0x414. Call targets need Ghidra to resolve reliably. |
