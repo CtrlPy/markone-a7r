@@ -135,6 +135,21 @@ remain count is computed elsewhere. `MprCtrl::GetStillSizeTable()` lookups
 (libObj `FUN_00c2c3f0`, nearest-area fallback `FUN_00c2c214`) do not produce a
 zero by themselves; the counter path is still to be found.
 
+## 8. XPan works through data alone (2026-11-09)
+
+Writing XPan 65:24 geometry into the 16:9 slot (PXSZ L 7360x2720, M 4800x1776,
+S 3680x1360, APS-C 4800x1776 / 3680x1360 / 2400x880, JPEG estimates scaled
+from 3:2) and selecting 16:9 in the menu produced a **7360x2720 JPEG** with
+correct EXIF dimensions. The output crop is fully data driven: no code change
+needed. What stays 16:9 is the live-view frame, which is drawn from the
+aspect setting, not from PXSZ.
+
+Consequences:
+- XPan: remaining work is the viewfinder mask for the 16:9 slot.
+- 1:1: the crop and live view already work; what blocks it is code that only
+  knows aspect settings 1 and 2 (Image Size menu, fixed by the RAM patch;
+  shot counter path, still open).
+
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
