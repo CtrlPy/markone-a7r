@@ -41,3 +41,4 @@ Experimental. Anything you do to your camera is at your own risk. Back up first.
 ## Credits
 
 Built on the work of ma1co (fwtool.py, Sony-PMCA-RE, OpenMemories) and the nex-hack project.
+# markone-a7r
