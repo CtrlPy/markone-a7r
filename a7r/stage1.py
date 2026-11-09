@@ -16,19 +16,53 @@ Backup.bin writes (BKDW), file pushes and the interactive shell are refused.
 import argparse
 import datetime
 import json
+import struct
 import sys
 from pathlib import Path
 
 from a7r.backup import BackupFile, diff
+from a7r.ids import ASPECT_SETTING, IDS
 from a7r.stage0 import _guard as _stage0_guard
 from a7r.stage0 import check_backup, write_manifest
 
 ALLOWED_REQUESTS = {"TEST", "BKRD", "BKWR", "BKSY", "BKDA", "EXIT"}
 
-# id -> (size, allowed values or None for any)
-WRITABLE = {
-    0x01070012: (1, {bytes([v]) for v in range(4)}),  # still aspect setting: 1=3:2, 2=16:9, 0/3 hidden
-}
+SENSOR_MAX = {"": (7360, 4912), "APSC_": (4800, 3200)}  # ILCE-7R 3:2 L, full frame / APS-C crop
+JPEG_ESTIMATE_MAX = 65535  # largest 3:2 estimate on the camera is 36348
+
+
+def _aspect_ok(data):
+    return data in {bytes([v]) for v in range(4)}
+
+
+def _pxsz_ok(limit):
+    def check(data):
+        w, h, n = struct.unpack("<HHI", data)
+        if (w, h, n) == (0, 0, 0):
+            return True  # rollback to the factory value
+        return n == w * h and w == h and w % 16 == 0 and w <= limit[0] and h <= limit[1]
+    return check
+
+
+def _datsz_ok(data):
+    return struct.unpack("<I", data)[0] <= JPEG_ESTIMATE_MAX
+
+
+def _writable():
+    table = {ASPECT_SETTING: (1, _aspect_ok)}  # 0=4:3, 1=3:2, 2=16:9, 3=1:1
+    for name, pid in IDS.items():
+        if "_1_1" not in name:
+            continue
+        if name.startswith("PXSZ"):
+            prefix = "APSC_" if "_APSC_" in name else ""
+            table[pid] = (8, _pxsz_ok(SENSOR_MAX[prefix]))
+        else:
+            table[pid] = (4, _datsz_ok)
+    return table
+
+
+# id -> (size, validator)
+WRITABLE = _writable()
 
 # Properties seen changing between reads with only the aspect menu touched
 # (2026-11-09, ILCE-7R 3.20): counters, logs, menu cursor positions.
@@ -51,10 +85,10 @@ def plan(changes):
     for pid, data in changes:
         if pid not in WRITABLE:
             raise ValueError(f"{pid:#010x} is not in the stage 1 allowlist")
-        size, allowed = WRITABLE[pid]
+        size, valid = WRITABLE[pid]
         if len(data) != size:
             raise ValueError(f"{pid:#010x}: size {len(data)}, expected {size}")
-        if allowed is not None and data not in allowed:
+        if not valid(data):
             raise ValueError(f"{pid:#010x}: value {data.hex()} not allowed")
         planned[pid] = data
     return planned
@@ -127,11 +161,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="a7r.stage1", description="Write allow-listed Backup.bin properties")
     ap.add_argument("pmca_root", type=Path)
     ap.add_argument("outdir", type=Path)
-    ap.add_argument("--set", dest="changes", action="append", required=True, type=parse_change,
+    ap.add_argument("--set", dest="changes", action="append", default=[], type=parse_change,
                     help="ID=HEXBYTES, e.g. 0x01070012=03")
+    ap.add_argument("--plan-file", type=Path, help="JSON {id: hexbytes} from python -m a7r.formats")
     ap.add_argument("--model", default="ILCE-7R")
     args = ap.parse_args(argv)
-    run(args.pmca_root, args.outdir, plan(args.changes), args.model)
+    changes = list(args.changes)
+    if args.plan_file:
+        changes += [(int(k, 16), bytes.fromhex(v)) for k, v in json.loads(args.plan_file.read_text()).items()]
+    if not changes:
+        ap.error("nothing to write: give --set or --plan-file")
+    run(args.pmca_root, args.outdir, plan(changes), args.model)
     return 0
 
 

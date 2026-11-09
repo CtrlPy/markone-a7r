@@ -36,8 +36,39 @@ def test_plan_rejects_ids_outside_allowlist():
         plan([(0x003E0005, b"x")])
 
 
-def test_aspect_is_the_only_writable_id_for_now():
-    assert set(WRITABLE) == {ASPECT}
+def test_writable_ids_are_aspect_and_1_1_geometry_only():
+    from a7r.ids import IDS
+    square = {pid for name, pid in IDS.items() if "_1_1" in name}
+    assert len(square) == 42
+    assert set(WRITABLE) == {ASPECT} | square
+
+
+def test_plan_accepts_square_pxsz_within_sensor():
+    from a7r.formats import encode_pxsz
+    from a7r.ids import IDS
+    pid = IDS["PXSZ_STL_L_1_1"]
+    assert plan([(pid, encode_pxsz(4912, 4912))]) == {pid: encode_pxsz(4912, 4912)}
+
+
+@pytest.mark.parametrize("w, h", [(4912, 4144), (7360, 7360)])
+def test_plan_rejects_non_square_or_oversized_pxsz(w, h):
+    from a7r.formats import encode_pxsz
+    from a7r.ids import IDS
+    with pytest.raises(ValueError, match="not allowed"):
+        plan([(IDS["PXSZ_STL_L_1_1"], encode_pxsz(w, h))])
+
+
+def test_plan_allows_zeroing_geometry_for_rollback():
+    from a7r.ids import IDS
+    pid = IDS["PXSZ_STL_L_1_1"]
+    assert plan([(pid, bytes(8))]) == {pid: bytes(8)}
+
+
+def test_plan_rejects_absurd_jpeg_estimate():
+    import struct
+    from a7r.ids import IDS
+    with pytest.raises(ValueError, match="not allowed"):
+        plan([(IDS["DATSZ_JPG_L_1_1_FINE_MAX"], struct.pack("<I", 10**7))])
 
 
 def test_allowed_requests_have_no_bulk_backup_write():
