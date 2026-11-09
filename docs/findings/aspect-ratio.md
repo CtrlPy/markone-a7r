@@ -150,6 +150,22 @@ Consequences:
   live view) and the 1:1 PXSZ is square.
 - XPan needs its own crop window (code or other tables), not just PXSZ.
 
+## 9. The menu lock is a list choice made at init (2026-11-09)
+
+- The Aspect Ratio menu shows a per-model item list. `_getSubNode()` in
+  `CautionConfig.so` reads the read-only UI model type (Backup 0x01070316,
+  A7R = 27) and, because bit 27 is in mask 0x5ca00002, uses `Type01`
+  {3:2, 16:9}. The `Default` list has all four: 3:2, 16:9, 4:3, 1:1.
+- Greying (`isValueGrayedOut`, inhibit ids 0x96/0x94/0x95/0x414) is a second,
+  separate layer.
+- Like the MPR size table behind the shot counter, the list is built at init
+  and resumed from the flash snapshot (`/wbi`). RAM patches to the selector
+  have no effect; the change has to be in the files at a cold boot.
+
+So all three 1:1 blockers have a known fix: Image Size fallback (libObj,
+4 bytes), full menu list (CautionConfig, 4 bytes), and a cold boot with the
+1:1 values present (data). Only the cold boot has not been tested.
+
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
