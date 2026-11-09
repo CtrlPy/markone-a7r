@@ -80,3 +80,27 @@ def test_plan_square_copies_screennail_estimate_from_3_2():
     planned = plan_square(camera_like_backup())
     assert struct.unpack("<I", planned[IDS["DATSZ_JPGSCN_1_1_MAX"]])[0] == 1171
     assert struct.unpack("<I", planned[IDS["DATSZ_JPGSCN_1_1_TGT"]])[0] == 853
+
+
+from a7r.formats import plan_xpan, xpan_height
+
+
+@pytest.mark.parametrize("w, h", [(7360, 2720), (4800, 1776), (3680, 1360), (2400, 880)])
+def test_xpan_height_is_65_24_rounded_to_multiple_of_16(w, h):
+    assert xpan_height(w) == h
+
+
+def test_plan_xpan_replaces_16_9_geometry():
+    planned = plan_xpan(camera_like_backup())
+    assert len(planned) == 42
+    assert decode_pxsz(planned[IDS["PXSZ_STL_L_16_9"]]) == (7360, 2720)
+    assert decode_pxsz(planned[IDS["PXSZ_STL_M_16_9"]]) == (4800, 1776)
+    assert decode_pxsz(planned[IDS["PXSZ_APSC_STL_S_16_9"]]) == (2400, 880)
+    names = {v: k for k, v in IDS.items()}
+    assert all("_16_9" in names[pid] for pid in planned)
+
+
+def test_plan_xpan_scales_jpeg_estimates_from_3_2():
+    planned = plan_xpan(camera_like_backup())
+    got = struct.unpack("<I", planned[IDS["DATSZ_JPG_L_16_9_FINE_MAX"]])[0]
+    assert got == math.ceil(2107 * 7360 * 2720 / (7360 * 4912))

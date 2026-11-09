@@ -36,11 +36,12 @@ def test_plan_rejects_ids_outside_allowlist():
         plan([(0x003E0005, b"x")])
 
 
-def test_writable_ids_are_aspect_and_1_1_geometry_only():
+def test_writable_ids_are_aspect_1_1_and_16_9_geometry_only():
     from a7r.ids import IDS
     square = {pid for name, pid in IDS.items() if "_1_1" in name}
-    assert len(square) == 44
-    assert set(WRITABLE) == {ASPECT} | square
+    wide = {pid for name, pid in IDS.items() if "_16_9" in name and "JPGSCN" not in name}
+    assert len(square) == 44 and len(wide) == 42
+    assert set(WRITABLE) == {ASPECT} | square | wide
 
 
 def test_plan_accepts_square_pxsz_within_sensor():
@@ -175,3 +176,19 @@ def test_write_session_refuses_wrong_model_before_writing(tmp_path):
     with pytest.raises(ValueError, match="ILCE-7S"):
         write_session(backend, {0x01070012: b"\x03"}, tmp_path, "ILCE-7R")
     assert backend.values[0x01070012] == b"\x02"
+
+
+def test_plan_accepts_xpan_geometry_in_16_9_slot():
+    from a7r.formats import encode_pxsz
+    from a7r.ids import IDS
+    pid = IDS["PXSZ_STL_L_16_9"]
+    assert plan([(pid, encode_pxsz(7360, 2720))]) == {pid: encode_pxsz(7360, 2720)}
+    assert plan([(pid, encode_pxsz(7360, 4144))])  # stock 16:9, for rollback
+
+
+@pytest.mark.parametrize("w, h", [(7376, 2720), (7360, 2721), (7360, 4928)])
+def test_plan_rejects_16_9_geometry_outside_sensor_or_grid(w, h):
+    from a7r.formats import encode_pxsz
+    from a7r.ids import IDS
+    with pytest.raises(ValueError, match="not allowed"):
+        plan([(IDS["PXSZ_STL_L_16_9"], encode_pxsz(w, h))])

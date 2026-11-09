@@ -44,6 +44,16 @@ def _pxsz_ok(limit):
     return check
 
 
+def _pxsz_wide_ok(limit):
+    """16:9 slot: any landscape frame on the 16-pixel width / 8-pixel height grid
+    within the sensor (stock 16:9 S is 3680x2072, XPan L 7360x2720)."""
+    def check(data):
+        w, h, n = struct.unpack("<HHI", data)
+        return (n == w * h and 0 < h <= w and w % 16 == 0 and h % 8 == 0
+                and w <= limit[0] and h <= limit[1])
+    return check
+
+
 def _datsz_ok(data):
     return struct.unpack("<I", data)[0] <= JPEG_ESTIMATE_MAX
 
@@ -51,11 +61,15 @@ def _datsz_ok(data):
 def _writable():
     table = {ASPECT_SETTING: (1, _aspect_ok)}  # 0=4:3, 1=3:2, 2=16:9, 3=1:1
     for name, pid in IDS.items():
-        if "_1_1" not in name:
+        if "_1_1" in name:
+            square = True
+        elif "_16_9" in name and "JPGSCN" not in name:
+            square = False
+        else:
             continue
         if name.startswith("PXSZ"):
-            prefix = "APSC_" if "_APSC_" in name else ""
-            table[pid] = (8, _pxsz_ok(SENSOR_MAX[prefix]))
+            limit = SENSOR_MAX["APSC_" if "_APSC_" in name else ""]
+            table[pid] = (8, _pxsz_ok(limit) if square else _pxsz_wide_ok(limit))
         else:
             table[pid] = (4, _datsz_ok)
     return table

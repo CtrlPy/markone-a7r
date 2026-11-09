@@ -74,6 +74,36 @@ def plan_square(bk: BackupFile):
     return planned
 
 
+def xpan_height(width):
+    """Hasselblad XPan 65:24, height rounded to the nearest multiple of 16."""
+    return round(width * 24 / 65 / 16) * 16
+
+
+def plan_xpan(bk: BackupFile):
+    """XPan geometry for the 16:9 slot: full 3:2 width, 65:24 height.
+
+    JPEG size estimates scale from the 3:2 ones by pixel count; the 16:9
+    screennail estimate is left as it is.
+    """
+    planned = {}
+    for prefix in PREFIXES:
+        for size in SIZES:
+            src = f"PXSZ_{prefix}STL_{size}_3_2"
+            w, h = decode_pxsz(bk.properties[IDS[src]].data)
+            if not w or not h:
+                raise ValueError(f"{src} is empty, cannot derive XPan")
+            xh = xpan_height(w)
+            planned[IDS[f"PXSZ_{prefix}STL_{size}_16_9"]] = encode_pxsz(w, xh)
+            ratio = xh / h
+            for q in QUALITIES:
+                for k in KINDS:
+                    value = _u32(bk, f"DATSZ_{prefix}JPG_{size}_3_2_{q}_{k}")
+                    if not value:
+                        raise ValueError(f"DATSZ_{prefix}JPG_{size}_3_2_{q}_{k} is empty")
+                    planned[IDS[f"DATSZ_{prefix}JPG_{size}_16_9_{q}_{k}"]] = struct.pack("<I", math.ceil(value * ratio))
+    return planned
+
+
 def describe(planned):
     names = {v: k for k, v in IDS.items()}
     rows = []
@@ -90,11 +120,14 @@ def describe(planned):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="a7r.formats")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sq = sub.add_parser("square", help="plan 1:1 geometry from a camera Backup.bin")
-    sq.add_argument("backup")
-    sq.add_argument("plan")
+    for name, help_ in (("square", "plan 1:1 geometry from a camera Backup.bin"),
+                        ("xpan", "plan XPan 65:24 geometry in the 16:9 slot")):
+        sp = sub.add_parser(name, help=help_)
+        sp.add_argument("backup")
+        sp.add_argument("plan")
     args = ap.parse_args(argv)
-    planned = plan_square(BackupFile(open(args.backup, "rb").read()))
+    planner = {"square": plan_square, "xpan": plan_xpan}[args.cmd]
+    planned = planner(BackupFile(open(args.backup, "rb").read()))
     with open(args.plan, "w") as f:
         json.dump({f"{k:#010x}": v.hex() for k, v in sorted(planned.items())}, f, indent=2)
         f.write("\n")
