@@ -1,14 +1,16 @@
 """Stage 3: patch the running camera process in RAM via /proc/<pid>/mem.
 
 For each edit of a BytePatch (whose file is mapped by the main camera process
-im.elf), compute the absolute address from /proc/<pid>/maps, read the current
-bytes, check they are the expected originals, write the replacement with
-busybox dd and read back. Nothing touches flash; a power cycle undoes it.
+im.elf), compute the absolute address from /proc/<pid>/maps and run a7rpoke
+(native/a7rpoke, uploaded to RAM): it writes only if the expected original
+bytes are there and reads back. The camera's busybox 1.13 dd cannot write to
+/proc/<pid>/mem (no conv=notrunc). Nothing touches flash; a power cycle undoes it.
 If memory already holds the replacement the edit is skipped.
 
     PYTHONPATH=. fw/pmca-venv/bin/python -m a7r.mempatch fw/Sony-PMCA-RE libobj-image-size-aspect-fallback work/mempatch-<date>
 """
 import argparse
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -31,23 +33,27 @@ def find_text_base(maps, lib):
     raise MemPatchError(f"{lib} not mapped as r-x at offset 0")
 
 
-def mempatch_steps(patch, pid, base):
-    steps = [("run", f"mkdir -p {WORK}")]
+POKE_REMOTE = f"{WORK}/a7rpoke"
+
+
+def mempatch_steps(patch, pid, base, poke):
+    steps = [
+        ("run", f"mkdir -p {WORK}"),
+        ("put", POKE_REMOTE, poke),
+        ("run", f"chmod 755 {POKE_REMOTE}"),
+    ]
     for off, old, new in patch.edits:
         addr = base + off
-        n = len(old)
         steps += [
-            ("read", f"dd if=/proc/{pid}/mem of={WORK}/mem_before.bin bs=1 skip={addr} count={n}", f"{WORK}/mem_before.bin", old, new),
-            ("stage", f"{WORK}/mem_patch.bin", new),
-            ("write", f"dd if={WORK}/mem_patch.bin of=/proc/{pid}/mem bs=1 seek={addr} count={n} conv=notrunc"),
-            ("verify", f"dd if=/proc/{pid}/mem of={WORK}/mem_after.bin bs=1 skip={addr} count={n}", f"{WORK}/mem_after.bin", new),
+            ("read", f"{POKE_REMOTE} /proc/{pid}/mem {addr} --read {len(old)}", old, new),
+            ("poke", f"{POKE_REMOTE} /proc/{pid}/mem {addr} {old.hex()} {new.hex()}", new),
         ]
     return steps
 
 
 def run_mempatch(steps, session, camera, log=print):
-    allowed = {s[1] for s in steps if s[0] in ("run", "read", "write", "verify")}
-    skip_write = False
+    allowed = {s[1] for s in steps if s[0] in ("run", "read", "poke")}
+    skip_poke = False
 
     def run(cmd):
         if cmd not in allowed:
@@ -61,32 +67,32 @@ def run_mempatch(steps, session, camera, log=print):
         kind = step[0]
         if kind == "run":
             run(step[1])
+        elif kind == "put":
+            camera.writeFile(step[1], step[2])
+            back = camera.readFile(step[1]) or b""
+            if hashlib.sha256(back).digest() != hashlib.sha256(step[2]).digest():
+                raise MemPatchError(f"uploaded {step[1]} sha256 mismatch; not running it")
+            log(f"ok: {step[1]} uploaded, sha256 {hashlib.sha256(back).hexdigest()}")
         elif kind == "read":
-            run(step[1])
-            got = camera.readFile(step[2])
-            old, new = step[3], step[4]
-            if got == new:
-                log(f"already patched ({got.hex()}), skipping write")
-                skip_write = True
-            elif got != old:
-                raise MemPatchError(f"memory holds {got.hex() if got else got}, expected {old.hex()}; not writing")
+            m = re.search(r"^read ([0-9a-f]+)$", run(step[1]), re.M)
+            if not m:
+                raise MemPatchError("a7rpoke --read gave no result; tool may not run on this camera")
+            got, old, new = bytes.fromhex(m.group(1)), step[2], step[3]
+            if got not in (old, new):
+                raise MemPatchError(f"memory holds {got.hex()}, expected {old.hex()}; not writing")
+            skip_poke = got == new
+            log(f"ok: memory holds {got.hex()} ({'already patched' if skip_poke else 'original'})")
+        elif kind == "poke":
+            if skip_poke:
+                log("skip write: already patched")
+                continue
+            out = run(step[1])
+            if re.search(r"^already patched$", out, re.M):
+                log("ok: already patched")
+            elif re.search(r"^ok$", out, re.M) and f"after {step[2].hex()}" in out:
+                log(f"ok: memory now {step[2].hex()}")
             else:
-                skip_write = False
-                log(f"ok: original bytes {got.hex()}")
-        elif kind == "stage":
-            if not skip_write:
-                camera.writeFile(step[1], step[2])
-                if camera.readFile(step[1]) != step[2]:
-                    raise MemPatchError("staged patch bytes did not read back")
-        elif kind == "write":
-            if not skip_write:
-                run(step[1])
-        elif kind == "verify":
-            run(step[1])
-            got = camera.readFile(step[2])
-            if got != step[3]:
-                raise MemPatchError(f"after write memory holds {got.hex() if got else got}, expected {step[3].hex()}")
-            log(f"ok: memory now {got.hex()}")
+                raise MemPatchError(f"a7rpoke did not confirm the write: {out.strip()}")
         else:
             raise MemPatchError(f"unknown step {kind}")
 
@@ -98,8 +104,11 @@ def main(argv=None):
     ap.add_argument("pmca_root", type=Path)
     ap.add_argument("patch", choices=sorted(PATCHES))
     ap.add_argument("logdir", type=Path)
+    ap.add_argument("--poke", type=Path, default=Path("work/bin/a7rpoke-armv7"),
+                    help="a7rpoke built for ARMv7 (see native/a7rpoke)")
     args = ap.parse_args(argv)
     patch = PATCHES[args.patch]
+    poke = args.poke.read_bytes()
 
     sys.path.insert(0, str(args.pmca_root))
     from pmca.commands.usb import senserShellCommand
@@ -126,7 +135,7 @@ def main(argv=None):
             (args.logdir / "maps.txt").write_text(maps)
             base = find_text_base(maps, patch.file)
             log(f"{PROCESS} pid {pid}, {patch.file} text base {base:#x}")
-            run_mempatch(mempatch_steps(patch, pid, base), session, camera, log=log)
+            run_mempatch(mempatch_steps(patch, pid, base, poke), session, camera, log=log)
             done["ok"] = True
         finally:
             camera.setTerminalEnable(False)
