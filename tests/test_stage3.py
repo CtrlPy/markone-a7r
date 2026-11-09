@@ -45,12 +45,12 @@ def test_run_times_out_without_marker():
         TerminalSession(Silent(), max_polls=5).run("ps")
 
 
-@pytest.mark.parametrize("cmd", ["pidof im.elf", "dmesg", "uname -a", "ps", "cat /proc/123/maps", "grep -l libObj /proc/*/maps", "busybox --list", "ls -l /proc/self/mem"])
+@pytest.mark.parametrize("cmd", ["mpr_monio.elf", "mwf_monio.elf", "pidof im.elf", "dmesg", "uname -a", "ps", "cat /proc/123/maps", "grep -l libObj /proc/*/maps", "busybox --list", "ls -l /proc/self/mem"])
 def test_read_only_commands_pass(cmd):
     assert is_read_only(cmd)
 
 
-@pytest.mark.parametrize("cmd", ["rm -rf /", "dd if=/dev/zero of=/dev/nflasha", "echo 1 > /proc/x", "cat a >> b", "mount -o remount,rw /", "dmesg -c", "dmesg -n 1", "kill 1", "reboot", "ps; rm x", "a && b", "sh -c x", "$(rm x)", "`rm x`"])
+@pytest.mark.parametrize("cmd", ["rm -rf /", "dd if=/dev/zero of=/dev/nflasha", "echo 1 > /proc/x", "cat a >> b", "mount -o remount,rw /", "dmesg -c", "dmesg -n 1", "mpr_monio.elf x", "ulogio.elf", "kill 1", "reboot", "ps; rm x", "a && b", "sh -c x", "$(rm x)", "`rm x`"])
 def test_write_or_compound_commands_fail(cmd):
     assert not is_read_only(cmd)
 

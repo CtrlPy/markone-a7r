@@ -15,7 +15,8 @@ import sys
 import time
 from pathlib import Path
 
-READ_ONLY_PROGRAMS = {"pidof", "dmesg", "uname", "cat", "ps", "ls", "grep", "busybox", "id", "which", "head", "df", "free", "readlink"}
+NO_ARG_PROGRAMS = {"dmesg", "mpr_monio.elf", "mwf_monio.elf"}  # dump-only tools; arguments could change state
+READ_ONLY_PROGRAMS = NO_ARG_PROGRAMS | {"pidof", "uname", "cat", "ps", "ls", "grep", "busybox", "id", "which", "head", "df", "free", "readlink"}
 FORBIDDEN = re.compile(r"[;&|<>`]|\$\(")
 
 RECON_COMMANDS = [
@@ -43,7 +44,7 @@ def is_read_only(cmd):
         return False
     if not words or words[0] not in READ_ONLY_PROGRAMS:
         return False
-    if words[0] == "dmesg" and len(words) > 1:  # -c clears, -n changes the console level
+    if words[0] in NO_ARG_PROGRAMS and len(words) > 1:  # e.g. dmesg -c clears the ring buffer
         return False
     return True
 
