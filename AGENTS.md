@@ -41,8 +41,14 @@ camera safety rules are in [CLAUDE.md](CLAUDE.md); read both before starting.
 ## Environment
 
 Fedora Linux, Python 3.11+ venv in `.venv` (`pip install -e '.[dev]'`).
-Static analysis so far: `strings`, pyelftools, capstone. Ghidra is the
-planned tool for call-graph work (stripped ARM32 Thumb-2 ELF).
+Static analysis: `strings`, pyelftools, capstone for quick checks; Ghidra
+12.1.4 (the build REA verifies against, JDK 21+) for decompilation and call
+graphs, driven headless (`support/analyzeHeadless`) or through the REA MCP
+server / CLI (`npx rea-agents@6.8.0`, Node >= 24.22.1, `GHIDRA_INSTALL_DIR`
+set). Hand-rolled capstone call-target naming proved unreliable on these
+stripped Thumb-2 libraries; use Ghidra for anything that depends on callees.
+Decompiler output can drop arguments (seen on `WrapperSettingUtil::isInhOn`):
+confirm constants in the disassembly.
 
 ## Handoff
 
