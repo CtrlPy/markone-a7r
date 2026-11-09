@@ -14,3 +14,4 @@
 | 2026-11-09 | 3.20 | Real camera Backup.bin, `PXSZ_STL_L_*` | Same as factory: 3:2 and 16:9 filled, 1:1 / 4:3 / 17:9 zero. Static finding confirmed on hardware. |
 | 2026-11-09 | 3.20 | Backup.bin read at 16:9, then again at 3:2 (`a7r.stage0 --flash ''`) | 13 properties differ; only `0x01070012` follows the menu: 1 = 3:2, 2 = 16:9. `getAspectRatio()` accepts 0..3. |
 | 2026-11-09 | 3.20 | Decompile `getAspectRatio`, `CnvStillAspect` (REA + Ghidra 12.1.4) | Setting domain 0..3; 0 and 3 are the hidden aspects, order not proven statically. |
+| 2026-11-09 | 3.20 | Stage 1: `a7r.stage1 --set 0x01070012=03` | Written and read back after sync; no other property changed. Camera shows a **square live view on LCD and EVF**, no errors: setting value 3 = 1:1 (so 0 = 4:3). Aspect menu still lists only 3:2 and 16:9. No shot taken: 1:1 PXSZ/DATSZ are still zero. |

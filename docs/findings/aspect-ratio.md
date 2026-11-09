@@ -90,13 +90,15 @@ Pipeline enum (`DefStruct::STILL_ASPECT_*` name table order, matches the
 ELF vaddr `0x2eb4c`), a conversion between two internal enums, not from the
 setting.
 
-Working hypothesis: setting 3 = 1:1 (its inhibit id `0x414` is far from the
+**Confirmed on camera 2026-11-09:** writing 3 gives a square live view on LCD and EVF with no errors, so 3 = 1:1 and 0 = 4:3. The menu still lists only 3:2 and 16:9 (inhibit gate unchanged).
+
+Original hypothesis: setting 3 = 1:1 (its inhibit id `0x414` is far from the
 original trio, consistent with 1:1 being added to the platform later) and
 setting 0 = 4:3. To be settled on the camera.
 
 ## Open questions
 
-1. Setting value for 1:1 vs 4:3 (0 or 3).
+1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
 2. Origin of inhibit ids `0x94`/`0x95`/`0x96`/`0x414`: a data table (patchable
    in Backup.bin or a config file) or code.
 3. Whether the live view mask for 16:9 is also data driven (candidates:
