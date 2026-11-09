@@ -79,3 +79,15 @@ def test_still_pixel_sizes_match_a7r_spec_and_hidden_aspects_are_empty():
     for hidden in ("1_1", "4_3"):
         for size in ("L", "M", "S"):
             assert pixel_size(bk, pairs, f"BKID_IMAGING_PXSZ_STL_{size}_{hidden}") == (0, 0, 0)
+
+
+def test_geometry_id_table_matches_libmprctrl():
+    from a7r.ids import IDS
+    bk = template()
+    pairs = find_name_id_pairs(MPRCTRL.read_bytes(), elf_load_segments(MPRCTRL), bk.num_subsystems)
+    inferred = {"DATSZ_APSC_JPG_S_3_2_EXFINE_TGT"}
+    for name, pid in IDS.items():
+        if name in inferred:
+            assert pid in bk.properties
+            continue
+        assert pairs["BKID_IMAGING_" + name] == pid, name
