@@ -54,6 +54,11 @@ stripped Thumb-2 libraries; use Ghidra for anything that depends on callees.
 Decompiler output can drop arguments (seen on `WrapperSettingUtil::isInhOn`):
 confirm constants in the disassembly.
 
+Native helper for the camera: `native/a7rpoke` (C, static). Build with
+`mise exec zig@0.13.0 -- zig cc -target arm-linux-musleabi -mcpu=cortex_a5 -static -Os -o work/bin/a7rpoke-armv7 native/a7rpoke/a7rpoke.c`;
+host tests compile it for x86 and run it on a scratch file. The camera runs
+BusyBox 1.13.4 (no `dd conv=`, no `id`/`which`).
+
 ## Handoff
 
 Session handoffs and private working notes are kept outside the repository
