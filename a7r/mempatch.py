@@ -36,7 +36,7 @@ def find_text_base(maps, lib):
 POKE_REMOTE = f"{WORK}/a7rpoke"
 
 
-def mempatch_steps(patch, pid, base, poke):
+def mempatch_steps(patch, pid, base, poke, read_only=False):
     steps = [
         ("run", f"mkdir -p {WORK}"),
         ("put", POKE_REMOTE, poke),
@@ -46,8 +46,9 @@ def mempatch_steps(patch, pid, base, poke):
         addr = base + off
         steps += [
             ("read", f"{POKE_REMOTE} /proc/{pid}/mem {addr} --read {len(old)}", old, new),
-            ("poke", f"{POKE_REMOTE} /proc/{pid}/mem {addr} {old.hex()} {new.hex()}", new),
         ]
+        if not read_only:
+            steps.append(("poke", f"{POKE_REMOTE} /proc/{pid}/mem {addr} {old.hex()} {new.hex()}", new))
     return steps
 
 
@@ -106,6 +107,7 @@ def main(argv=None):
     ap.add_argument("logdir", type=Path)
     ap.add_argument("--poke", type=Path, default=Path("work/bin/a7rpoke-armv7"),
                     help="a7rpoke built for ARMv7 (see native/a7rpoke)")
+    ap.add_argument("--read-only", action="store_true", help="upload a7rpoke and read the bytes, never write")
     args = ap.parse_args(argv)
     patch = PATCHES[args.patch]
     poke = args.poke.read_bytes()
@@ -137,7 +139,7 @@ def main(argv=None):
             (args.logdir / "maps.txt").write_text(maps)
             base = find_text_base(maps, patch.file)
             log(f"{PROCESS} pid {pid}, {patch.file} text base {base:#x}")
-            run_mempatch(mempatch_steps(patch, pid, base, poke), session, camera, log=log)
+            run_mempatch(mempatch_steps(patch, pid, base, poke, read_only=args.read_only), session, camera, log=log)
             done["ok"] = True
         finally:
             camera.setTerminalEnable(False)

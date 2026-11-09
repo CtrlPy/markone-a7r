@@ -100,3 +100,12 @@ def test_libobj_patch_matches_menu_fallback():
     from a7r.patches import LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK as p
     assert p.file == "libObj.so"
     assert p.edits == [(0x90FA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))]
+
+
+def test_read_only_steps_never_write():
+    steps = mempatch_steps(PATCH, 148, 0x05A67000, POKE, read_only=True)
+    assert [s[0] for s in steps] == ["run", "put", "run", "read"]
+    cam = FakeCam(bytearray.fromhex("032c00d9"))
+    s = FakeSession(cam)
+    run_mempatch(steps, s, cam, log=lambda m: None)
+    assert cam.mem == bytearray.fromhex("032c00d9")
