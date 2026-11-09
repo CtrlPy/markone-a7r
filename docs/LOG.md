@@ -10,3 +10,5 @@
 | 2026-11-09 | 3.20 | `a7r.bkid` on `lib/libmprctrl.so` | 711 BKID names → ids; entry layout `{id, name}` (the `{name, id}` reading gave inconsistent sizes, rejected). |
 | 2026-11-09 | 3.20 | Decode `BKID_IMAGING_PXSZ_STL_*` | 3:2 / 16:9 match A7R spec (7360×4912, 7360×4144); 1:1, 4:3, 17:9 slots exist and are zero. Same for JPEG size estimates. See `docs/findings/aspect-ratio.md`. |
 | 2026-11-09 | 3.20 | Disassemble `WrapperImageAspect`, `CustomImageAspectRatio::isValueGrayedOut` (capstone) | GUI maps 4 aspect values; per-value inhibit ids 0x96/0x94/0x95/0x414. Call targets need Ghidra to resolve reliably. |
+| 2026-11-09 | 3.20 | Stage 0: `a7r.stage0` via PMCA-RE updater mode (ILCE-7R.hdr, CXD90014) | OK. Camera switched after OK on screen, returned to normal mode by itself. Backup.bin 772 464 B (BK4, region CX77900_UC2, 15 868 properties, 351 differ from the factory template), `/dev/nflasha` 495 976 448 B. Hashes kept with the dump, not published. |
+| 2026-11-09 | 3.20 | Real camera Backup.bin, `PXSZ_STL_L_*` | Same as factory: 3:2 and 16:9 filled, 1:1 / 4:3 / 17:9 zero. Static finding confirmed on hardware. |
