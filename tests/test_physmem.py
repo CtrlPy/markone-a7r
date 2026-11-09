@@ -31,3 +31,39 @@ def test_ram_start_from_iomem():
 
 def test_kernel_virt_linear_map():
     assert kernel_virt(0x834E5A12, ram=0x80000000) == 0xC34E5A12
+
+
+from a7r.physmem import check_page_before_write
+
+PAGE_BYTES = bytes(range(256)) * 16
+
+
+def test_check_page_accepts_matching_page_with_original_bytes():
+    page = bytearray(PAGE_BYTES)
+    page[0xA12:0xA16] = bytes.fromhex("032c00d9")
+    assert check_page_before_write(bytes(page), bytes(page), 0xA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0")) == "write"
+
+
+def test_check_page_reports_already_patched():
+    page = bytearray(PAGE_BYTES)
+    page[0xA12:0xA16] = bytes.fromhex("022c00d0")
+    file_page = bytearray(page)
+    file_page[0xA12:0xA16] = bytes.fromhex("032c00d9")
+    assert check_page_before_write(bytes(page), bytes(file_page), 0xA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0")) == "already"
+
+
+def test_check_page_refuses_when_other_bytes_differ_from_file():
+    page = bytearray(PAGE_BYTES)
+    page[0xA12:0xA16] = bytes.fromhex("032c00d9")
+    file_page = bytearray(page)
+    page[0x10] ^= 0xFF
+    with pytest.raises(PhysMemError, match="differs from the file"):
+        check_page_before_write(bytes(page), bytes(file_page), 0xA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))
+
+
+def test_check_page_refuses_unexpected_patch_site():
+    page = bytearray(PAGE_BYTES)
+    page[0xA12:0xA16] = bytes.fromhex("deadbeef")
+    file_page = bytearray(page)
+    with pytest.raises(PhysMemError, match="expected"):
+        check_page_before_write(bytes(page), bytes(file_page), 0xA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))

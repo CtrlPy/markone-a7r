@@ -1,4 +1,4 @@
-"""Stage 3 probe (read-only): which address space does senser MemoryDump use?
+"""Stage 3: probe senser MemoryDump addressing, and optionally patch through it.
 
 Reads the libObj.so code page that holds a patch site three ways and compares
 each with the same page of the local libObj.so file:
@@ -7,6 +7,11 @@ each with the same page of the local libObj.so file:
   3. senser MemoryDump at the kernel linear address of that frame
 No foreign binaries are run and nothing is written except small files in the
 RAM-only /android/a7r.
+
+With --write the patch site is written through senser MemoryDump at the
+physical address, only if the whole physical page equals the file page and
+the site holds the original bytes; then it is read back physically and
+through /proc/<pid>/mem. RAM only: a power cycle undoes it.
 
     PYTHONPATH=. fw/pmca-venv/bin/python -m a7r.physprobe fw/Sony-PMCA-RE work/physprobe-<date> --lib fw/out/.../libObj.so
 """
@@ -18,7 +23,7 @@ from pathlib import Path
 
 from a7r.mempatch import PROCESS, WORK, find_text_base
 from a7r.patches import LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK as PATCH
-from a7r.physmem import PAGE, kernel_virt, pagemap_offset, parse_pagemap, ram_start
+from a7r.physmem import PAGE, check_page_before_write, kernel_virt, pagemap_offset, parse_pagemap, ram_start
 from a7r.stage3 import TerminalSession
 
 
@@ -27,6 +32,7 @@ def main(argv=None):
     ap.add_argument("pmca_root", type=Path)
     ap.add_argument("logdir", type=Path)
     ap.add_argument("--lib", type=Path, required=True, help="local libObj.so (3.20)")
+    ap.add_argument("--write", action="store_true", help="patch the site through MemoryDump (RAM only)")
     args = ap.parse_args(argv)
 
     lib = args.lib.read_bytes()
@@ -79,6 +85,22 @@ def main(argv=None):
                 except Exception as e:  # report and continue: this is a probe
                     log(f"MemoryDump {label} {addr:#x}: error {e}")
                     result[label] = f"error {e}"
+            if args.write:
+                _, old, new = PATCH.edits[0]
+                site = off % PAGE
+                decision = check_page_before_write(camera.readMemory(phys, PAGE), file_page, site, old, new)
+                log(f"page check: {decision}")
+                if decision == "write":
+                    camera.writeMemory(phys + site, new)
+                    log(f"MemoryDump write {phys + site:#x} <- {new.hex()}")
+                back = camera.readMemory(phys + site, len(new))
+                cmd = f"dd if=/proc/{pid}/mem of={WORK}/site.bin bs=1 skip={base + off} count={len(new)}"
+                log(f"$ {cmd}")
+                log(s.run(cmd).rstrip())
+                proc = camera.readFile(f"{WORK}/site.bin")
+                result["physical_after"] = back.hex()
+                result["process_after"] = proc.hex()
+                log(f"after: physical {back.hex()} process {proc.hex()}")
         finally:
             camera.setTerminalEnable(False)
 
