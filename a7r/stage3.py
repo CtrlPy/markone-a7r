@@ -122,8 +122,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="a7r.stage3", description="Read-only recon via service shell")
     ap.add_argument("pmca_root", type=Path)
     ap.add_argument("outdir", type=Path)
+    ap.add_argument("--cmd", action="append", help="read-only command to run instead of the default list")
     args = ap.parse_args(argv)
-    run(args.pmca_root, args.outdir)
+    run(args.pmca_root, args.outdir, args.cmd or RECON_COMMANDS)
     return 0
 
 

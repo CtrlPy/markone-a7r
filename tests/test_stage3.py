@@ -57,3 +57,9 @@ def test_write_or_compound_commands_fail(cmd):
 
 def test_recon_commands_are_all_read_only():
     assert RECON_COMMANDS and all(is_read_only(c) for c in RECON_COMMANDS)
+
+
+def test_cli_rejects_custom_write_command_before_touching_camera():
+    from a7r.stage3 import main
+    with pytest.raises(ValueError, match="read-only"):
+        main(["fw/Sony-PMCA-RE", "/nonexistent/out", "--cmd", "rm /tmp/x"])
