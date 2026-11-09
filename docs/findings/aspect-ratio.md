@@ -114,6 +114,27 @@ With `0x01070012 = 3` and all 1:1 PXSZ/DATSZ/JPGSCN values filled:
 Conclusion: the settings-level stage cannot finish 1:1 on its own. The next
 step needs a code change (in-memory first, Stage 3) or the app route (Stage 4).
 
+## 7. Stage 3 in RAM: the Image Size menu works in 1:1 (2026-11-09)
+
+- The menu classes run from `libObj.so`, which embeds its own copy of
+  `CmnViewProcessDataElementCustomImageSize`; `cmn_view_processDataMgr.so` is
+  never loaded (a RAM bind-mount of a patched copy had no effect).
+- Patch `libobj-image-size-aspect-fallback`: 4 bytes at libObj file/vaddr
+  `0x90fa12` (`cmp r4,#3; bls` → `cmp r4,#2; beq`), so every aspect except
+  16:9 uses the 3:2 Image Size list.
+- Applied in RAM only, through Sony's own senser MemoryDump at the physical
+  address of the page (pagemap PFN), after checking the whole 4 KiB page
+  against the file. Running our own static helper binary resets the camera,
+  even read-only; built-in tools (busybox dd, MemoryDump) do not.
+- Settings can be written through the service channel without a reboot
+  (`a7r.stage1 --mode service`), which keeps RAM patches alive.
+
+Result on camera: Image Size is selectable in 1:1 (labels still show the 3:2
+megapixels), live view square. **Shot counter stays 0 / "no space"**: the
+remain count is computed elsewhere. `MprCtrl::GetStillSizeTable()` lookups
+(libObj `FUN_00c2c3f0`, nearest-area fallback `FUN_00c2c214`) do not produce a
+zero by themselves; the counter path is still to be found.
+
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
