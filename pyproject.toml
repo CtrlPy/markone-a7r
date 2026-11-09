@@ -1,0 +1,13 @@
+[project]
+name = "a7r-formats"
+version = "0.1.0"
+description = "Research tools for extra aspect ratios on the Sony ILCE-7R"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["firmware: needs a locally unpacked firmware in fw/out (skipped otherwise)"]
