@@ -12,3 +12,5 @@
 | 2026-11-09 | 3.20 | Disassemble `WrapperImageAspect`, `CustomImageAspectRatio::isValueGrayedOut` (capstone) | GUI maps 4 aspect values; per-value inhibit ids 0x96/0x94/0x95/0x414. Call targets need Ghidra to resolve reliably. |
 | 2026-11-09 | 3.20 | Stage 0: `a7r.stage0` via PMCA-RE updater mode (ILCE-7R.hdr, CXD90014) | OK. Camera switched after OK on screen, returned to normal mode by itself. Backup.bin 772 464 B (BK4, region CX77900_UC2, 15 868 properties, 351 differ from the factory template), `/dev/nflasha` 495 976 448 B. Hashes kept with the dump, not published. |
 | 2026-11-09 | 3.20 | Real camera Backup.bin, `PXSZ_STL_L_*` | Same as factory: 3:2 and 16:9 filled, 1:1 / 4:3 / 17:9 zero. Static finding confirmed on hardware. |
+| 2026-11-09 | 3.20 | Backup.bin read at 16:9, then again at 3:2 (`a7r.stage0 --flash ''`) | 13 properties differ; only `0x01070012` follows the menu: 1 = 3:2, 2 = 16:9. `getAspectRatio()` accepts 0..3. |
+| 2026-11-09 | 3.20 | Decompile `getAspectRatio`, `CnvStillAspect` (REA + Ghidra 12.1.4) | Setting domain 0..3; 0 and 3 are the hidden aspects, order not proven statically. |

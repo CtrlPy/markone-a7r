@@ -68,11 +68,35 @@ most likely give a 0×0 image size or a zero shot counter.
   `PARAMID_CAMSETTING_IMAGE_ASPECT_RATIO`: a route to read the supported list and
   set the value without the menu.
 
+## 5. The user's aspect setting is Backup.bin `0x01070012` (confirmed on camera)
+
+Three Backup.bin reads from a real ILCE-7R (3:2 → 16:9 → 3:2, nothing else
+changed) differ in 13 properties; only `0x01070012` follows the menu:
+
+| Value | Meaning |
+| --- | --- |
+| 1 | 3:2 (factory reset value) |
+| 2 | 16:9 |
+| 0, 3 | the two hidden aspects, 4:3 and 1:1 in some order |
+
+`CmnViewProcessDataElementCustomImageSize::getAspectRatio()` reads this
+property and accepts only values below 4 (anything else falls back to 1). The
+menu gate `isValueGrayedOut(v)` uses the same 0..3 domain: v=0 → inhibit `0x96`,
+1 → `0x94`, 2 → `0x95`, 3 → `0x414`.
+
+Pipeline enum (`DefStruct::STILL_ASPECT_*` name table order, matches the
+`libmprctrl` debug help): 0 = 3:2, 1 = 4:3, 2 = 16:9, 3 = 1:1, 4 = 17:9.
+`UtilStillSize::CnvStillAspect(i)` maps i → `[3, 2, 4, 0, 1][i]` (table at
+ELF vaddr `0x2eb4c`), a conversion between two internal enums, not from the
+setting.
+
+Working hypothesis: setting 3 = 1:1 (its inhibit id `0x414` is far from the
+original trio, consistent with 1:1 being added to the platform later) and
+setting 0 = 4:3. To be settled on the camera.
+
 ## Open questions
 
-1. Backup.bin id of the *user's current* still aspect setting. Not named in any
-   table; found fastest on the camera: dump Backup.bin with 3:2, switch to 16:9,
-   dump again, `python -m a7r.backup diff`.
+1. Setting value for 1:1 vs 4:3 (0 or 3).
 2. Origin of inhibit ids `0x94`/`0x95`/`0x96`/`0x414`: a data table (patchable
    in Backup.bin or a config file) or code.
 3. Whether the live view mask for 16:9 is also data driven (candidates:
