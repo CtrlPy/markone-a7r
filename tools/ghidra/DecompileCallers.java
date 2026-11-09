@@ -19,11 +19,16 @@ public class DecompileCallers extends GhidraScript {
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             if (!f.getName(true).contains(pattern)) continue;
             out.println("// target: " + f.getName(true) + " @ " + f.getEntryPoint());
-            for (Reference r : getReferencesTo(f.getEntryPoint())) {
-                Function c = getFunctionContaining(r.getFromAddress());
-                if (c != null) callers.add(c);
+            java.util.List<ghidra.program.model.address.Address> targets = new java.util.ArrayList<>();
+            targets.add(f.getEntryPoint());
+            ghidra.program.model.address.Address[] thunks = f.getFunctionThunkAddresses(true);
+            if (thunks != null) targets.addAll(java.util.Arrays.asList(thunks));
+            for (ghidra.program.model.address.Address t : targets) {
+                for (Reference r : getReferencesTo(t)) {
+                    Function c = getFunctionContaining(r.getFromAddress());
+                    if (c != null) callers.add(c);
+                }
             }
-            for (Function thunk : f.getFunctionThunkAddresses() == null ? new Function[0] : new Function[0]) {}
         }
         // include callers of thunks
         Set<Function> extra = new LinkedHashSet<>();
