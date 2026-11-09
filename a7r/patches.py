@@ -31,4 +31,20 @@ LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK = BytePatch(
     edits=[(0x90FA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))],
 )
 
-PATCHES = {p.name: p for p in (IMAGE_SIZE_ASPECT_FALLBACK, LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK)}
+# Aspect Ratio menu gate: libObj's copy of
+# CmnViewProcessDataElementCustomImageAspectRatio::isValueGrayedOut(v) (file/vaddr
+# 0x903b58, byte-identical to cmn_view_processDataMgr.so 0x60c6c) asks
+# WrapperSettingUtil::isInhOn() with inhibit ids 0x96 (4:3), 0x94 (3:2),
+# 0x95 (16:9), 0x414 (1:1) and greys the item out when it is on. Replace
+# `subs r4, r0, #0` (result = inhibit state) with `movs r4, #0` (result = not
+# greyed); the following `it ne; movne r4, #1` then never fires. Values > 3
+# stay greyed.
+LIBOBJ_ASPECT_MENU_UNLOCK = BytePatch(
+    name="libobj-aspect-menu-unlock",
+    file="libObj.so",
+    sha256="11311207320721b2dbf11497ea8e7a7d9ca8f96e64e6157b63ce2fb2b0a48bf3",
+    edits=[(0x903B98, bytes.fromhex("041e"), bytes.fromhex("0024"))],
+)
+
+PATCHES = {p.name: p for p in (IMAGE_SIZE_ASPECT_FALLBACK, LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK,
+                                LIBOBJ_ASPECT_MENU_UNLOCK)}

@@ -91,3 +91,16 @@ def test_geometry_id_table_matches_libmprctrl():
             assert pid in bk.properties
             continue
         assert pairs["BKID_IMAGING_" + name] == pid, name
+
+
+LIBOBJ = ROOT / "0700_part_image" / "dev" / "nflasha15_unpacked_unpacked" / "lib" / "libObj.so"
+
+
+@pytest.mark.parametrize("name", ["libobj-image-size-aspect-fallback", "libobj-aspect-menu-unlock"])
+def test_libobj_patches_apply_to_stock_3_20(name):
+    from a7r.patch import apply_patch
+    from a7r.patches import PATCHES
+    p = PATCHES[name]
+    raw = LIBOBJ.read_bytes()
+    out = apply_patch(p, raw)
+    assert sum(a != b for a, b in zip(raw, out)) <= 2

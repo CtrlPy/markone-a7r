@@ -46,3 +46,9 @@ def test_known_patch_targets_image_size_aspect():
     from a7r.patches import IMAGE_SIZE_ASPECT_FALLBACK as p
     assert p.file == "cmn_view_processDataMgr.so"
     assert p.edits == [(0x61ACE, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))]
+
+
+def test_aspect_menu_unlock_patch_targets_isValueGrayedOut_result():
+    from a7r.patches import LIBOBJ_ASPECT_MENU_UNLOCK as p
+    assert p.file == "libObj.so"
+    assert p.edits == [(0x903B98, bytes.fromhex("041e"), bytes.fromhex("0024"))]

@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from a7r.mempatch import PROCESS, WORK, find_text_base
-from a7r.patches import LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK as PATCH
+from a7r.patches import PATCHES
 from a7r.physmem import PAGE, check_page_before_write, kernel_virt, pagemap_offset, parse_pagemap, ram_start
 from a7r.stage3 import TerminalSession
 
@@ -33,12 +33,18 @@ def main(argv=None):
     ap.add_argument("logdir", type=Path)
     ap.add_argument("--lib", type=Path, required=True, help="local libObj.so (3.20)")
     ap.add_argument("--write", action="store_true", help="patch the site through MemoryDump (RAM only)")
+    ap.add_argument("--patch", action="append", choices=sorted(n for n, p in PATCHES.items() if p.file == "libObj.so"),
+                    help="libObj patch(es) to apply; default: libobj-image-size-aspect-fallback")
     args = ap.parse_args(argv)
 
     lib = args.lib.read_bytes()
-    if hashlib.sha256(lib).hexdigest() != PATCH.sha256:
-        raise SystemExit("local libObj.so is not the expected 3.20 build")
-    off = PATCH.edits[0][0]
+    selected = [PATCHES[n] for n in (args.patch or ["libobj-image-size-aspect-fallback"])]
+    for p in selected:
+        if hashlib.sha256(lib).hexdigest() != p.sha256:
+            raise SystemExit("local libObj.so is not the expected 3.20 build")
+    edits = [e for p in selected for e in p.edits]
+    PATCH = selected[0]
+    off = edits[0][0]
     file_page = lib[off - off % PAGE: off - off % PAGE + PAGE]
 
     sys.path.insert(0, str(args.pmca_root))
@@ -86,21 +92,25 @@ def main(argv=None):
                     log(f"MemoryDump {label} {addr:#x}: error {e}")
                     result[label] = f"error {e}"
             if args.write:
-                _, old, new = PATCH.edits[0]
-                site = off % PAGE
-                decision = check_page_before_write(camera.readMemory(phys, PAGE), file_page, site, old, new)
-                log(f"page check: {decision}")
-                if decision == "write":
-                    camera.writeMemory(phys + site, new)
-                    log(f"MemoryDump write {phys + site:#x} <- {new.hex()}")
-                back = camera.readMemory(phys + site, len(new))
-                cmd = f"dd if=/proc/{pid}/mem of={WORK}/site.bin bs=1 skip={base + off} count={len(new)}"
-                log(f"$ {cmd}")
-                log(s.run(cmd).rstrip())
-                proc = camera.readFile(f"{WORK}/site.bin")
-                result["physical_after"] = back.hex()
-                result["process_after"] = proc.hex()
-                log(f"after: physical {back.hex()} process {proc.hex()}")
+                for e_off, old, new in edits:
+                    vpage_e = base + e_off - e_off % PAGE
+                    s.run(f"dd if=/proc/{pid}/mem of={WORK}/page.bin bs={PAGE} skip={vpage_e // PAGE} count=1")
+                    s.run(f"dd if=/proc/{pid}/pagemap of={WORK}/pm.bin bs=8 skip={pagemap_offset(vpage_e) // 8} count=1")
+                    phys_e = parse_pagemap(camera.readFile(f"{WORK}/pm.bin")) * PAGE
+                    fpage = lib[e_off - e_off % PAGE: e_off - e_off % PAGE + PAGE]
+                    site = e_off % PAGE
+                    decision = check_page_before_write(camera.readMemory(phys_e, PAGE), fpage, site, old, new)
+                    log(f"edit {e_off:#x}: phys page {phys_e:#x}, page check: {decision}")
+                    if decision == "write":
+                        camera.writeMemory(phys_e + site, new)
+                        log(f"MemoryDump write {phys_e + site:#x} <- {new.hex()}")
+                    back = camera.readMemory(phys_e + site, len(new))
+                    cmd = f"dd if=/proc/{pid}/mem of={WORK}/site.bin bs=1 skip={base + e_off} count={len(new)}"
+                    log(f"$ {cmd}")
+                    log(s.run(cmd).rstrip())
+                    proc = camera.readFile(f"{WORK}/site.bin")
+                    result[f"{e_off:#x}"] = {"physical_after": back.hex(), "process_after": proc.hex()}
+                    log(f"after: physical {back.hex()} process {proc.hex()}")
         finally:
             camera.setTerminalEnable(False)
 
