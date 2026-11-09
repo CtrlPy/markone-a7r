@@ -139,8 +139,10 @@ def main(argv=None):
     done = {}
 
     def log(msg):
-        print(msg)
+        print(msg, flush=True)
         lines.append(msg)
+        with open(args.logdir / "transcript.txt", "a") as f:  # written as we go: survives a dropped USB link
+            f.write(msg + "\n")
 
     def complete(camera):
         camera.readHasp()
@@ -153,7 +155,6 @@ def main(argv=None):
             done["ok"] = True
         finally:
             camera.setTerminalEnable(False)
-            (args.logdir / "transcript.txt").write_text("\n".join(lines) + "\n")
 
     senserShellCommand(complete=complete)
     if not done:
