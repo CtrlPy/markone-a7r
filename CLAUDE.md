@@ -104,11 +104,9 @@ Caveat: this is shared platform code (same libs ship on RX100-class bodies that 
 
 - Sony A7R (ILCE-7R), firmware 3.20.
 - HDMI capture card (owner has it). Dummy battery NP-FW50 → USB-C PD is being bought: use it during any long telnet/update session so power never drops.
-- Laptop (OS: ask the owner), micro-USB cable, SD card dedicated to experiments.
+- Laptop with Fedora Linux, micro-USB cable, SD card dedicated to experiments.
 
-## Repo layout
+## Repo layout and workflow
 
-- `tools/extract_dat.py` — carve the DAT out of the 2023-style updater exe.
-- `docs/LOG.md` — experiment log.
-- `docs/` — findings (partition map, Backup.bin ids, function notes).
-- `fw/`, `dumps/` — local only, git-ignored.
+See [AGENTS.md](AGENTS.md) for the layout, tools and engineering workflow (TDD,
+commits, verification rules). Static findings so far: [docs/findings/aspect-ratio.md](docs/findings/aspect-ratio.md).
