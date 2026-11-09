@@ -61,13 +61,14 @@ def write_manifest(outdir: Path, meta: dict) -> dict:
     return manifest
 
 
-def _guard(backend):
+def _guard(backend, allowed=frozenset(ALLOWED_REQUESTS)):
     original = backend._req
+    allowed = frozenset(allowed)
 
     def guarded(cmd, *args, **kwargs):
         name = cmd.decode("latin1")
-        if name not in ALLOWED_REQUESTS:
-            raise PermissionError(f"stage0 refuses USB shell request {name}")
+        if name not in allowed:
+            raise PermissionError(f"refused USB shell request {name}")
         return original(cmd, *args, **kwargs)
 
     backend._req = guarded
