@@ -96,6 +96,24 @@ Original hypothesis: setting 3 = 1:1 (its inhibit id `0x414` is far from the
 original trio, consistent with 1:1 being added to the platform later) and
 setting 0 = 4:3. To be settled on the camera.
 
+## 6. Where the settings path stops (camera + decompilation, 2026-11-09)
+
+With `0x01070012 = 3` and all 1:1 PXSZ/DATSZ/JPGSCN values filled:
+
+- Live view is square on LCD and EVF (data driven, works).
+- `MprCtrlStillMgr::GetStillDataInfo` picks size-estimate ids from a table
+  indexed by `size*30 + aspect*6 + crop*3 + quality` (DefStruct aspect order
+  0=3:2, 1=4:3, 2=16:9, 3=1:1, 4=17:9); for 1:1 it reads our filled ids.
+- **The Image Size menu has no 1:1 branch in code.**
+  `CmnViewProcessDataElementCustomImageSize::convertInternalIdToValue` and
+  `isValueDisable` only have tables for setting values 1 (3:2) and 2 (16:9);
+  any other aspect returns invalid (0x45). On camera: Image Size is blank and
+  not selectable, JPEG shows 0 shots / "no space", RAW and RAW+JPEG hide the
+  counter.
+
+Conclusion: the settings-level stage cannot finish 1:1 on its own. The next
+step needs a code change (in-memory first, Stage 3) or the app route (Stage 4).
+
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
