@@ -20,6 +20,10 @@ camera safety rules are in [CLAUDE.md](CLAUDE.md); read both before starting.
   meaning is accepted only when a measurable invariant holds (e.g. the
   `{id, name}` table layout was chosen because JPEG size estimates become
   consistent). Pin such facts with a test in `tests/test_firmware_integration.py`.
+- **Confirm the code that runs before patching it.** Check `/proc/<pid>/maps`
+  (and inodes) on the camera: the menu classes exist both in
+  `cmn_view_processDataMgr.so` (never loaded) and inside `libObj.so` (the one
+  that runs). A patch to an unloaded copy changes nothing.
 - **Tests.** `.venv/bin/python -m pytest`. Firmware tests are marked
   `firmware` and skip when `fw/out` is absent.
 - **Git.** GitHub Flow (feature branches off `main`), Angular Conventional

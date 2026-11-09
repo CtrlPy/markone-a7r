@@ -18,3 +18,17 @@ IMAGE_SIZE_ASPECT_FALLBACK = BytePatch(
 )
 
 PATCHES = {p.name: p for p in (IMAGE_SIZE_ASPECT_FALLBACK,)}
+
+# The menu actually runs from libObj.so, which embeds its own copy of
+# CmnViewProcessDataElementCustomImageSize (cmn_view_processDataMgr.so is not
+# loaded by the camera; checked on device 2026-11-09). Same function
+# (Ghidra FUN_0091f9c0, ELF vaddr 0x90f9c0), same four bytes; text segment
+# offset == vaddr.
+LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK = BytePatch(
+    name="libobj-image-size-aspect-fallback",
+    file="libObj.so",
+    sha256="11311207320721b2dbf11497ea8e7a7d9ca8f96e64e6157b63ce2fb2b0a48bf3",
+    edits=[(0x90FA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))],
+)
+
+PATCHES = {p.name: p for p in (IMAGE_SIZE_ASPECT_FALLBACK, LIBOBJ_IMAGE_SIZE_ASPECT_FALLBACK)}
