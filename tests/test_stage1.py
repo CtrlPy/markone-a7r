@@ -39,7 +39,7 @@ def test_plan_rejects_ids_outside_allowlist():
 def test_writable_ids_are_aspect_and_1_1_geometry_only():
     from a7r.ids import IDS
     square = {pid for name, pid in IDS.items() if "_1_1" in name}
-    assert len(square) == 42
+    assert len(square) == 44
     assert set(WRITABLE) == {ASPECT} | square
 
 

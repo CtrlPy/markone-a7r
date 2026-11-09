@@ -22,6 +22,10 @@ def camera_like_backup():
                 for j, k in enumerate(("TGT", "MAX")):
                     values[IDS[f"DATSZ_{prefix}JPG_{size}_3_2_{q}_{k}"]] = struct.pack("<I", 1000 * (i + 1) + 100 * j + 7)
                     values[IDS[f"DATSZ_{prefix}JPG_{size}_1_1_{q}_{k}"]] = bytes(4)
+    values[IDS["DATSZ_JPGSCN_3_2_MAX"]] = struct.pack("<I", 1171)
+    values[IDS["DATSZ_JPGSCN_3_2_TGT"]] = struct.pack("<I", 853)
+    values[IDS["DATSZ_JPGSCN_1_1_MAX"]] = bytes(4)
+    values[IDS["DATSZ_JPGSCN_1_1_TGT"]] = bytes(4)
     top = max(values) & 0xFFFF
     sub5 = [(0, "fixed", values[0x00050000 | i]) if (0x00050000 | i) in values else None for i in range(top + 1)]
     return BackupFile(build_backup([[], [], [], [], [], sub5]))
@@ -44,7 +48,7 @@ def test_square_side_is_largest_multiple_of_16_within_height(h, side):
 
 def test_plan_square_fills_all_1_1_geometry_from_3_2():
     planned = plan_square(camera_like_backup())
-    assert len(planned) == 42
+    assert len(planned) == 44
     assert decode_pxsz(planned[IDS["PXSZ_STL_L_1_1"]]) == (4912, 4912)
     assert decode_pxsz(planned[IDS["PXSZ_STL_M_1_1"]]) == (3200, 3200)
     assert decode_pxsz(planned[IDS["PXSZ_STL_S_1_1"]]) == (2448, 2448)
@@ -70,3 +74,9 @@ def test_plan_square_refuses_when_3_2_source_is_empty():
         IDS["PXSZ_STL_L_3_2"], 0, bytes(8), 8, None)
     with pytest.raises(ValueError, match="3_2"):
         plan_square(bk)
+
+
+def test_plan_square_copies_screennail_estimate_from_3_2():
+    planned = plan_square(camera_like_backup())
+    assert struct.unpack("<I", planned[IDS["DATSZ_JPGSCN_1_1_MAX"]])[0] == 1171
+    assert struct.unpack("<I", planned[IDS["DATSZ_JPGSCN_1_1_TGT"]])[0] == 853

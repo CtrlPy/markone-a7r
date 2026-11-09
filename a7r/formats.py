@@ -9,6 +9,9 @@ slots exist but are zero. plan_square() derives them from the camera's own
 - PXSZ: a centred square using the full 3:2 height, side rounded down to a
   multiple of 16 (every width Sony ships is a multiple of 16).
 - DATSZ: the 3:2 estimate scaled by the pixel-count ratio, rounded up.
+- DATSZ_JPGSCN (embedded screennail estimate): copied from 3:2. The shot
+  counter reads it; left at zero the camera reports "no space" (seen on
+  camera 2026-11-09). Over-estimating only lowers the shot counter.
 
     python -m a7r.formats square dumps/<dir>/after.bin plan.json
 """
@@ -63,6 +66,11 @@ def plan_square(bk: BackupFile):
                     if not value:
                         raise ValueError(f"DATSZ_{prefix}JPG_{size}_3_2_{q}_{k} is empty")
                     planned[IDS[f"DATSZ_{prefix}JPG_{size}_1_1_{q}_{k}"]] = struct.pack("<I", math.ceil(value * ratio))
+    for k in KINDS:
+        value = _u32(bk, f"DATSZ_JPGSCN_3_2_{k}")
+        if not value:
+            raise ValueError(f"DATSZ_JPGSCN_3_2_{k} is empty")
+        planned[IDS[f"DATSZ_JPGSCN_1_1_{k}"]] = struct.pack("<I", value)
     return planned
 
 
