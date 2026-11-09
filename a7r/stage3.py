@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-READ_ONLY_PROGRAMS = {"uname", "cat", "ps", "ls", "grep", "busybox", "id", "which", "head", "df", "free", "readlink"}
+READ_ONLY_PROGRAMS = {"pidof", "dmesg", "uname", "cat", "ps", "ls", "grep", "busybox", "id", "which", "head", "df", "free", "readlink"}
 FORBIDDEN = re.compile(r"[;&|<>`]|\$\(")
 
 RECON_COMMANDS = [
@@ -41,7 +41,11 @@ def is_read_only(cmd):
         words = shlex.split(cmd)
     except ValueError:
         return False
-    return bool(words) and words[0] in READ_ONLY_PROGRAMS
+    if not words or words[0] not in READ_ONLY_PROGRAMS:
+        return False
+    if words[0] == "dmesg" and len(words) > 1:  # -c clears, -n changes the console level
+        return False
+    return True
 
 
 class TerminalSession:
