@@ -15,7 +15,9 @@ import sys
 import time
 from pathlib import Path
 
-NO_ARG_PROGRAMS = {"dmesg", "mpr_monio.elf", "mwf_monio.elf"}  # dump-only tools; arguments could change state
+# mpr_monio.elf / mwf_monio.elf are continuous monitors, not dumps: one left running
+# after a terminal timeout coincided with a camera reset (2026-11-09). Not allowed.
+NO_ARG_PROGRAMS = {"dmesg"}  # arguments could change state
 READ_ONLY_PROGRAMS = NO_ARG_PROGRAMS | {"pidof", "uname", "cat", "ps", "ls", "grep", "busybox", "id", "which", "head", "df", "free", "readlink"}
 FORBIDDEN = re.compile(r"[;&|<>`]|\$\(")
 
