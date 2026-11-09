@@ -135,20 +135,20 @@ remain count is computed elsewhere. `MprCtrl::GetStillSizeTable()` lookups
 (libObj `FUN_00c2c3f0`, nearest-area fallback `FUN_00c2c214`) do not produce a
 zero by themselves; the counter path is still to be found.
 
-## 8. XPan works through data alone (2026-11-09)
+## 8. PXSZ is the output size, not the crop (2026-11-09)
 
-Writing XPan 65:24 geometry into the 16:9 slot (PXSZ L 7360x2720, M 4800x1776,
-S 3680x1360, APS-C 4800x1776 / 3680x1360 / 2400x880, JPEG estimates scaled
-from 3:2) and selecting 16:9 in the menu produced a **7360x2720 JPEG** with
-correct EXIF dimensions. The output crop is fully data driven: no code change
-needed. What stays 16:9 is the live-view frame, which is drawn from the
-aspect setting, not from PXSZ.
+Writing XPan 65:24 geometry into the 16:9 slot (PXSZ L 7360x2720 etc.) and
+shooting in 16:9 gave a 7360x2720 JPEG, but **vertically squeezed**: object
+proportions are 1.52x wider than in the 3:2 reference and the 16:9 screennail
+(1920x1080), i.e. 4144/2720. The camera reads the 16:9 window and scales it to
+the PXSZ size.
 
 Consequences:
-- XPan: remaining work is the viewfinder mask for the 16:9 slot.
-- 1:1: the crop and live view already work; what blocks it is code that only
-  knows aspect settings 1 and 2 (Image Size menu, fixed by the RAM patch;
-  shot counter path, still open).
+- PXSZ = encoder output size; the sensor crop window comes from the aspect
+  setting. Matching both is required for undistorted images.
+- 1:1 is consistent already: aspect setting 3 gives a square window (square
+  live view) and the 1:1 PXSZ is square.
+- XPan needs its own crop window (code or other tables), not just PXSZ.
 
 ## Open questions
 
