@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "a7r-formats"
 version = "0.1.0"
@@ -11,3 +15,6 @@ dev = ["pytest"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["firmware: needs a locally unpacked firmware in fw/out (skipped otherwise)"]
+
+[tool.setuptools]
+packages = ["a7r"]
