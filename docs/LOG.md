@@ -27,3 +27,5 @@
 | 2026-11-09 | 3.20 | Stage 3: `a7r.physprobe --write` (senser MemoryDump, physical 0x88cc2a12) | **Works, no reboot.** Whole physical page matched the file first; after the write both the physical read and `/proc/148/mem` show `022c00d0`. |
 | 2026-11-09 | 3.20 | `a7r.stage1 --mode service --set 0x01070012=03` | No reboot. Value was already 3: the 16:9 menu choice had not been persisted before the crash reboots. |
 | 2026-11-09 | 3.20 | Camera with RAM patch + aspect 3 | **Image Size menu now works in 1:1** (lists L 36M / M 15M / S 9M — 3:2 labels). Square live view. Shot counter still 0, "no space on memory card": the remain count uses another path (libObj `GetStillSizeTable` lookup). |
+| 2026-11-09 | 3.20 | Re-apply RAM patch after the owner switched the camera off and on | Patch was still present (`page check: already`): the power switch suspends with RAM kept (dmesg WARMBOOT/resume), only crashes or battery removal clear RAM patches. |
+| 2026-11-09 | 3.20 | `mpr_monio.elf` via service shell | Not a one-shot dump but a continuous monitor; terminal timed out, and the camera reset shortly after (uptime 90 s). Removed from the read-only allowlist. |
