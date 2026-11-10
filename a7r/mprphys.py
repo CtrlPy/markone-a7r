@@ -182,7 +182,8 @@ def main(argv=None):
             report["state_1_1_after"] = check_page(after, expected)
             log(f"after: 1:1 blocks {report['state_1_1_after']}")
 
-    since = time.strftime("%H:%M:%S")
+    # from a little before the start: the camera may already be in service mode (an earlier attempt switched it)
+    since = time.strftime("%H:%M:%S", time.localtime(time.time() - 120))
     try:
         senserShellCommand(complete=complete)
     finally:
