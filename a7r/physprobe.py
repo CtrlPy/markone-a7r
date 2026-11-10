@@ -34,6 +34,10 @@ def main(argv=None):
     ap.add_argument("--lib", type=Path, required=True,
                     help="local libObj.so (3.20); other patched libraries are read from the same directory")
     ap.add_argument("--write", action="store_true", help="patch the site through MemoryDump (RAM only)")
+    ap.add_argument("--probe-kernel-virtual", action="store_true",
+                    help="also read the kernel linear address of the frame through MemoryDump. Settled on "
+                         "2026-11-09 (MemoryDump takes physical addresses); that address is outside RAM when "
+                         "read as a physical one, so it is no longer read by default")
     ap.add_argument("--patch", action="append", choices=sorted(n for n, p in PATCHES.items() if p.file != "cmn_view_processDataMgr.so"),
                     help="libObj patch(es) to apply; default: libobj-image-size-aspect-fallback")
     args = ap.parse_args(argv)
@@ -86,7 +90,8 @@ def main(argv=None):
             phys = pfn * PAGE
             kv = kernel_virt(phys, ram)
             log(f"pfn {pfn:#x} phys {phys:#x} ram start {ram:#x} kernel virt {kv:#x}")
-            for label, addr in (("physical", phys), ("kernel_virtual", kv)):
+            probes = [("physical", phys)] + ([("kernel_virtual", kv)] if args.probe_kernel_virtual else [])
+            for label, addr in probes:
                 try:
                     data = camera.readMemory(addr, PAGE)
                     ok = data == file_page
