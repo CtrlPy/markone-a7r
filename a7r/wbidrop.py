@@ -1,5 +1,12 @@
 """Invalidate the warm-boot snapshot so the camera cold-boots once.
 
+HIGH RISK, NEVER RUN, NOT PART OF THE CURRENT DIRECTION. It writes a flash
+partition that every boot depends on. If the cold boot or the new snapshot
+fails, recovery may need a reflash or hardware access. Kept for the record
+only; running it needs a separate, explicit decision by the camera's owner.
+The shot-counter tables it was meant to rebuild can be changed in RAM
+instead (docs/findings/aspect-ratio.md section 10).
+
 The ILCE-7R always resumes from a snapshot image on /dev/nflasha5 ("Warm
 Boot Image", partition type 2 in partinf.conf, 60 MiB, header magic "WBI1").
 Tables built at init (e.g. the MPR still size table behind the shot counter)

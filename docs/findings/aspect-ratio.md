@@ -1,7 +1,26 @@
-# Aspect ratio: static findings (ILCE-7R 3.20)
+# Aspect ratio findings (ILCE-7R 3.20)
 
-All findings are from the official 3.20 updater, unpacked locally (see README).
-No camera was involved yet. Reproduce with the commands under each section.
+Static findings come from the official 3.20 updater, unpacked locally (see
+README). Camera results come from one ILCE-7R on firmware 3.20 (from
+2026-11-09). Reproduce with the commands under each section; the experiment
+history is in [../LOG.md](../LOG.md).
+
+## Current state (2026-11-10)
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Aspect setting `0x01070012`: 1 = 3:2, 2 = 16:9, 3 = 1:1, 0 = 4:3 | Confirmed (camera) | §5 |
+| Square live view on LCD and EVF with value 3 | Confirmed (camera) | §5 |
+| 1:1 PXSZ / DATSZ / JPGSCN values written to Backup.bin | Done (camera) | §6, LOG |
+| Image Size menu in 1:1 after the libObj RAM patch | Confirmed (camera) | §7 |
+| PXSZ is the encoder output size, not the crop window | Confirmed (camera) | §8 |
+| Aspect Ratio item list is fixed by the node constructor at init | Confirmed (static + camera) | §9 |
+| Camera resumes from a flash snapshot, even after a battery pull | Confirmed (camera: dmesg `WARMBOOT`, `/proc/ssboot`) | LOG |
+| Shot counter reads per-shot JPEG estimates that libmprctrl computes once at init and libmpr dereferences at runtime | Confirmed (static) | §10 |
+| No stock code path rebuilds those estimates after init | Confirmed (static: `MprCtrl::Init` runs once, no `Term`) | §10 |
+| The 1:1 estimate blocks in RAM are zero, and that is why the counter is 0 | **Hypothesis**; next read-only check on the camera | §10 |
+| Filling those blocks in RAM makes 1:1 shootable | **Hypothesis** | §10 |
+| What decides the sensor crop window per aspect (needed for a true XPan crop) | Open | §8 |
 
 ## 1. The factory Backup.bin templates are in the firmware
 
@@ -90,11 +109,9 @@ Pipeline enum (`DefStruct::STILL_ASPECT_*` name table order, matches the
 ELF vaddr `0x2eb4c`), a conversion between two internal enums, not from the
 setting.
 
-**Confirmed on camera 2026-11-09:** writing 3 gives a square live view on LCD and EVF with no errors, so 3 = 1:1 and 0 = 4:3. The menu still lists only 3:2 and 16:9 (inhibit gate unchanged).
-
-Original hypothesis: setting 3 = 1:1 (its inhibit id `0x414` is far from the
-original trio, consistent with 1:1 being added to the platform later) and
-setting 0 = 4:3. To be settled on the camera.
+**Confirmed on camera 2026-11-09:** writing 3 gives a square live view on LCD
+and EVF with no errors, so 3 = 1:1, and 0 = 4:3 by elimination (0 not tried on
+the camera). The menu still lists only 3:2 and 16:9 (see §9).
 
 ## 6. Where the settings path stops (camera + decompilation, 2026-11-09)
 
@@ -133,7 +150,7 @@ Result on camera: Image Size is selectable in 1:1 (labels still show the 3:2
 megapixels), live view square. **Shot counter stays 0 / "no space"**: the
 remain count is computed elsewhere. `MprCtrl::GetStillSizeTable()` lookups
 (libObj `FUN_00c2c3f0`, nearest-area fallback `FUN_00c2c214`) do not produce a
-zero by themselves; the counter path is still to be found.
+zero by themselves; the counter path is still to be found (found later, §10).
 
 ## 8. PXSZ is the output size, not the crop (2026-11-09)
 
@@ -158,29 +175,80 @@ Consequences:
   {3:2, 16:9}. The `Default` list has all four: 3:2, 16:9, 4:3, 1:1.
 - Greying (`isValueGrayedOut`, inhibit ids 0x96/0x94/0x95/0x414) is a second,
   separate layer.
-- Like the MPR size table behind the shot counter, the list is built at init
-  and resumed from the flash snapshot (`/wbi`). RAM patches to the selector
-  have no effect; the change has to be in the files at a cold boot.
+- The list is chosen when the node object is constructed: the constructor
+  `CmnViewSettingNodeStlImageAspectRatio(...)` calls `_getSubNode()`, which
+  stores the list pointer and count in the node (`+4`, `+8`). The tree is
+  built once at init and resumed from the flash snapshot (`/wbi`), so the RAM
+  patch of the literal in `_getSubNode()` had no effect (camera, 2026-11-09).
+  `CmnViewSettingNode::init()` later reads the list only through the virtual
+  `getSubNode()`, which returns those two stored members.
+- Not tried: changing the two members of the live node object in RAM. Whether
+  the menu re-reads them (e.g. through `updateSettingNode()`, which re-runs
+  `init()`) is unknown. The menu is not needed to shoot 1:1, because the aspect
+  can be set through the service channel.
 
-So all three 1:1 blockers have a known fix: Image Size fallback (libObj,
-4 bytes), full menu list (CautionConfig, 4 bytes), and a cold boot with the
-1:1 values present (data). Only the cold boot has not been tested.
+Superseded (2026-11-10): this section used to conclude that init-time state can
+only change through a cold boot with patched files. For the shot counter that
+is not so. The counter's tables are plain data in the camera process and can
+be changed in RAM (§10).
+
+## 10. The shot counter reads init-time estimates through pointers (static, 2026-11-10)
+
+Where the "remaining shots" number comes from, traced in Ghidra (libmprctrl.so,
+libmpr.so) and pinned in `tests/test_mprtable.py` (`a7r/mprtable.py` holds the
+addresses):
+
+- `MprCtrl::Init` (libmprctrl) runs once, guarded by `MprCtrl::mb_initFlag`;
+  there is no `Term`. It creates `MprCtrl::mp_stillMgr` (ELF `0x3ccc8`), reads
+  the Backup.bin geometry (`GetBackupStillSize`, a 99-row PXSZ copy in the
+  heap) and builds the estimates (`CreateStillData`).
+- `CreateStillData` computes, per JPEG mode, `{target, max}` from the Backup.bin
+  DATSZ, screennail and header values (`CalcStillData_JPG`) and stores each
+  pair in its own 8-byte heap block. The full-frame JPEG table (`.data`
+  `0x3bbfc`) has 60 entries `{1, *block}`, index `size*15 + aspect*3 + quality`
+  with sizes L, M, S, VGA, aspects in the order 1:1, 16:9, 17:9, 3:2, 4:3 and
+  qualities STD, FINE, EXFINE. The id list it walks names every entry, so the
+  order is read from the firmware, not guessed. 1:1 L is index 0..2, 3:2 L
+  index 9..11.
+- A 21-entry `StillSizeInfo` array (`.bss` `0x3cd04`, `{key, unit, *table,
+  count, extra}`; key 0 = full-frame JPEG, key 11 = APS-C JPEG) is handed to
+  MPR with `MprIf::SetCreateParam_StillSizeInfo`. libmpr stores only the
+  pointer and the count (`.bss` `0x8565f8` / `0x856604`), not a copy.
+- On every remain calculation (`MprIf::GetStillContentsRemain` → media
+  manager → `FUN_004b5490` in libmpr, Ghidra addresses) libmpr dereferences
+  `table[index].block`. The routing from the user's setting to `{key, index}`
+  (`MprCtrlStillMgr::GetStillRecInfo`, `.rodata` `0x2c648`) is complete for
+  1:1 and sends it to the 1:1 slots.
+- Card insertion or removal re-creates the media managers (`CreateMMgr`), but
+  they get the same pointer. No stock path recomputes the estimates.
+
+Consequences:
+- If the snapshot was taken while the 1:1 DATSZ values were zero (they were,
+  in every Sony template), the 1:1 blocks hold `{0, 0}` in RAM no matter what
+  Backup.bin says now. A zero per-shot size gives a zero remain count. This
+  matches the camera (counter 0, "no space") but is **not yet confirmed**.
+- The blocks are ordinary heap data of `im.elf`. They can be read with
+  `busybox dd` from `/proc/<pid>/mem` (read mechanism already used safely) and
+  written with Sony's service-mode memory command at the physical address
+  (the mechanism used for the libObj patch), with no flash write and no cold
+  boot. A battery pull resumes from the snapshot and undoes it.
+
+Reproduce:
+```
+.venv/bin/python -m pytest tests/test_mprtable.py
+# Ghidra: tools/ghidra/DecompileRefsTo.java on libmpr.so finds the readers of 0x8665f8 (image base 0x10000)
+```
 
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
-2. Origin of inhibit ids `0x94`/`0x95`/`0x96`/`0x414`: a data table (patchable
-   in Backup.bin or a config file) or code.
-3. Whether the live view mask for 16:9 is also data driven (candidates:
-   `libScalarDaemon.so` `FocusAreaPosition::getYUVLayout`, `PARAMID_PREVIEW_ASPECT_TYPE`).
-4. Units of `DATSZ` (KiB assumed) and whether `PXSZ` alone is enough for the
-   JPEG encoder, or the sensor readout / crop tables need values too.
-
-## Candidate Stage 1 experiment (needs owner approval, camera, fresh backup)
-
-1. Find the aspect setting id (question 1).
-2. Write 4:3 geometry into `PXSZ_STL_{L,M,S}_4_3`: e.g. L 6544×4912
-   (width rounded to a multiple of 16), M 4256×3200, S 3264×2456. Copy the
-   matching DATSZ estimates scaled by pixel count.
-3. Set the aspect value to 1 (4:3), check menu, live view, JPEG and ARW.
-4. Restore the saved Backup.bin.
+2. Are the 1:1 estimate blocks in RAM `{0, 0}` while the 3:2 blocks match
+   `CalcStillData_JPG` on the current Backup.bin? (read-only camera check)
+3. With the blocks filled, does the camera shoot 1:1, and what do the JPEG and
+   ARW contain? Do other init-time checks block the shutter (buffer
+   allocation, APS-C table key 11, RAW / RAW+JPEG keys)?
+4. What sets the sensor crop window per aspect? Needed for a true XPan crop;
+   candidates: `libScalarDaemon.so` `FocusAreaPosition::getYUVLayout`,
+   `PARAMID_PREVIEW_ASPECT_TYPE`.
+5. Origin of inhibit ids `0x94`/`0x95`/`0x96`/`0x414` (menu greying, second layer).
+6. Units of `DATSZ` (KiB assumed).
