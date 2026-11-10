@@ -185,3 +185,77 @@ def test_frame_lookup_reports_a_short_pagemap():
                       "/proc/148/pagemap": bytes(64)})
     with pytest.raises(codepatch.CodePatchError, match="pagemap"):
         codepatch.frame_from_proc(cam, 148, "libObj.so", SITE)
+
+
+# --- scanning RAM for the page ---
+
+class ScanCamera(FakeCamera):
+    def __init__(self, pages):
+        super().__init__(pages)
+        self.chunk_reads = []
+
+    def readMemory(self, addr, size):
+        self.chunk_reads.append((addr, size))
+        return b"".join(super(ScanCamera, self).readMemory(a, PAGE) for a in range(addr, addr + size, PAGE))
+
+
+AREA = [(0x88000000, 0x88100000)]  # 1 MiB, 256 pages
+
+
+def test_scan_finds_the_frame_holding_the_page():
+    lib = library()
+    cam = ScanCamera({0x88042000: file_page(lib)})
+    off = SITE
+    frame = codepatch.scan_for_page(cam, file_page(lib), off % PAGE, OLD, NEW, AREA, chunk=0x40000,
+                                    budget=60, clock=lambda: 0.0, log=lambda _: None)
+    assert frame == 0x88042000
+
+
+def test_scan_accepts_an_already_patched_page():
+    lib = library()
+    page = bytearray(file_page(lib))
+    page[SITE % PAGE: SITE % PAGE + 4] = NEW
+    cam = ScanCamera({0x880F0000: bytes(page)})
+    assert codepatch.scan_for_page(cam, file_page(lib), SITE % PAGE, OLD, NEW, AREA, chunk=0x40000,
+                                   budget=60, clock=lambda: 0.0, log=lambda _: None) == 0x880F0000
+
+
+def test_scan_returns_none_when_the_page_is_not_in_ram():
+    lib = library()
+    cam = ScanCamera({})
+    assert codepatch.scan_for_page(cam, file_page(lib), SITE % PAGE, OLD, NEW, AREA, chunk=0x40000,
+                                   budget=60, clock=lambda: 0.0, log=lambda _: None) is None
+    assert sum(size for _, size in cam.chunk_reads) == 0x100000
+
+
+def test_scan_stops_at_the_time_budget():
+    lib = library()
+    cam = ScanCamera({})
+    t = iter(range(0, 1000, 10))
+    assert codepatch.scan_for_page(cam, file_page(lib), SITE % PAGE, OLD, NEW, AREA, chunk=0x40000,
+                                   budget=15, clock=lambda: float(next(t)), log=lambda _: None) is None
+    assert len(cam.chunk_reads) < 4
+
+
+def test_scan_reads_only_inside_the_given_areas():
+    lib = library()
+    cam = ScanCamera({})
+    codepatch.scan_for_page(cam, file_page(lib), SITE % PAGE, OLD, NEW, [(0x84141000, 0x84181000)],
+                            chunk=0x30000, budget=60, clock=lambda: 0.0, log=lambda _: None)
+    assert cam.chunk_reads == [(0x84141000, 0x30000), (0x84171000, 0x10000)]
+
+
+def test_scan_refuses_areas_outside_linux_ram():
+    from a7r.mprphys import MprPhysError
+    lib = library()
+    with pytest.raises(MprPhysError):
+        codepatch.scan_for_page(ScanCamera({}), file_page(lib), SITE % PAGE, OLD, NEW, [(0x82D90000, 0x82DA0000)],
+                                chunk=0x10000, budget=60, clock=lambda: 0.0, log=lambda _: None)
+
+
+def test_scan_order_starts_near_the_frames_seen_before():
+    areas = codepatch.scan_areas(near=[0x88BB7000, 0x88CC2000])
+    assert areas[0][0] <= 0x88BB7000 < areas[0][1]
+    covered = sum(hi - lo for lo, hi in areas)
+    from a7r.mprphys import RAM_AREAS
+    assert covered == sum(hi - lo for lo, hi in RAM_AREAS)

@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from a7r.mempatch import MemPatchError, find_text_base
-from a7r.mprphys import check_address, dwell
+from a7r.mprphys import RAM_AREAS, check_address, dwell
 from a7r.physmem import PAGE, PhysMemError, check_page_before_write, parse_pagemap
 
 PROCESS_PID = 148  # im.elf in every boot seen (the boot snapshot keeps it)
@@ -57,6 +57,58 @@ def frame_from_proc(camera, pid, lib, offset):
         return parse_pagemap(entry) * PAGE
     except PhysMemError as e:
         raise CodePatchError(f"{lib} page at {base + offset - offset % PAGE:#x}: {e}") from e
+
+
+def scan_areas(near=()):
+    """All ordinary Linux RAM, starting a little below the first frame seen before."""
+    if not near:
+        return list(RAM_AREAS)
+    first, rest = [], []
+    for lo, hi in RAM_AREAS:
+        if lo <= near[0] < hi:
+            split = max(lo, (near[0] & ~0xFFFFF) - 0x800000)
+            first.append((split, hi))
+            if split > lo:
+                rest.append((lo, split))
+        else:
+            rest.append((lo, hi))
+    return first + rest
+
+
+def scan_for_page(camera, file_page, site, old, new, areas, chunk=0x100000, budget=60.0,
+                  clock=time.monotonic, log=print):
+    """First frame in `areas` whose page equals `file_page` apart from the site, or None.
+
+    Reads RAM in chunks through MemoryDump; stops when `budget` seconds have passed.
+    """
+    for lo, hi in areas:
+        check_address(lo, hi - lo)
+    start, done = clock(), 0
+    head = file_page[:min(site, 256)]
+    for lo, hi in areas:
+        addr = lo
+        while addr < hi:
+            if clock() - start > budget:
+                log(f"scan: time budget used up after {done >> 20} MiB")
+                return None
+            size = min(chunk, hi - addr)
+            data = bytes(camera.readMemory(addr, size) or b"")
+            if len(data) != size:
+                raise CodePatchError(f"MemoryDump at {addr:#x} gave {len(data)} of {size} bytes")
+            for i in range(0, size, PAGE):
+                page = data[i:i + PAGE]
+                if head and page[:len(head)] != head:
+                    continue
+                try:
+                    check_page_before_write(page, file_page, site, old, new)
+                except PhysMemError:
+                    continue
+                log(f"scan: page found at {addr + i:#x} after {(done + i) >> 20} MiB")
+                return addr + i
+            addr += size
+            done += size
+    log(f"scan: page not found in {done >> 20} MiB")
+    return None
 
 
 def find_frame(camera, file_page, site, old, new, candidates):
@@ -104,6 +156,9 @@ def main(argv=None):
                     choices=sorted(n for n, p in PATCHES.items() if p.file == "libObj.so"))
     ap.add_argument("--phys", action="append", default=[], type=lambda s: int(s, 0),
                     help="extra candidate frame (physical address), tried first")
+    ap.add_argument("--scan", action="store_true",
+                    help="if no candidate matches, search ordinary Linux RAM for the page (read-only) and patch it there")
+    ap.add_argument("--scan-budget", type=float, default=60.0, help="seconds of searching at most (default 60)")
     ap.add_argument("--from-proc", action="store_true",
                     help="look the frame up in /proc/<im.elf>/pagemap, read with Sony's file command, and try it first")
     args = ap.parse_args(argv)
@@ -142,7 +197,21 @@ def main(argv=None):
                     report["proc_error"] = str(e)
                     log(f"/proc lookup failed: {e}")
             report["tried"] = [hex(c) for c in tried]
-            report["results"] = apply(camera, patch, lib, tried, log)
+            try:
+                report["results"] = apply(camera, patch, lib, tried, log)
+            except CodePatchError as e:
+                if not args.scan or "no candidate" not in str(e):
+                    raise
+                log(f"{e}; searching RAM")
+                off, old, new = patch.edits[0]
+                t0 = time.monotonic()
+                frame = scan_for_page(camera, lib[off - off % PAGE: off - off % PAGE + PAGE], off % PAGE, old, new,
+                                      scan_areas(CANDIDATE_FRAMES[patch.file]), budget=args.scan_budget, log=log)
+                report["scan_seconds"] = round(time.monotonic() - t0, 1)
+                if frame is None:
+                    raise CodePatchError("the page was not found in RAM; nothing written")
+                report["scan_frame"] = hex(frame)
+                report["results"] = apply(camera, patch, lib, [frame], log)
         finally:
             dwell(start)
 
