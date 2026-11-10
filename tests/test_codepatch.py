@@ -125,3 +125,63 @@ def test_real_image_size_patch_applies_to_a_frame_holding_the_stock_page():
     cam = FakeCamera({FRAME_A: lib[off - off % PAGE: off - off % PAGE + PAGE]})
     (res,) = codepatch.apply(cam, patch, lib, [FRAME_B, FRAME_A], log=lambda _: None)
     assert res["frame"] == FRAME_A and cam.writes == [(FRAME_A + off % PAGE, new)]
+
+
+# --- finding the frame through /proc read with Sony's file command ---
+
+import struct as _struct
+
+MAPS = ("05a67000-06d92000 r-xp 00000000 fc:8f 130306     /usr/lib/libObj.so\n"
+        "06d9a000-06edd000 rw-p 0132b000 fc:8f 130306     /usr/lib/libObj.so\n")
+
+
+def pagemap_with(vaddr, entry):
+    data = bytearray(8 * (vaddr // PAGE + 4))
+    _struct.pack_into("<Q", data, 8 * (vaddr // PAGE), entry)
+    return bytes(data)
+
+
+class ProcCamera(FakeCamera):
+    def __init__(self, files, pages=None):
+        super().__init__(pages or {})
+        self.files, self.read_files = files, []
+
+    def readFile(self, path):
+        self.read_files.append(path)
+        return self.files.get(path, b"")
+
+
+def test_frame_comes_from_maps_and_pagemap():
+    vaddr = 0x05A67000 + SITE
+    cam = ProcCamera({"/proc/148/cmdline": b"/usr/bin/im.elf\0",
+                      "/proc/148/maps": MAPS.encode(),
+                      "/proc/148/pagemap": pagemap_with(vaddr, (1 << 63) | 0x8ABCD)})
+    assert codepatch.frame_from_proc(cam, 148, "libObj.so", SITE) == 0x8ABCD000
+
+
+def test_frame_lookup_refuses_another_process():
+    cam = ProcCamera({"/proc/148/cmdline": b"/bin/sh\0", "/proc/148/maps": MAPS.encode()})
+    with pytest.raises(codepatch.CodePatchError, match="im.elf"):
+        codepatch.frame_from_proc(cam, 148, "libObj.so", SITE)
+
+
+def test_frame_lookup_reports_an_empty_proc_read():
+    cam = ProcCamera({"/proc/148/cmdline": b"/usr/bin/im.elf\0"})
+    with pytest.raises(codepatch.CodePatchError, match="maps"):
+        codepatch.frame_from_proc(cam, 148, "libObj.so", SITE)
+    assert "/proc/148/pagemap" not in cam.read_files  # no big read when the small one already failed
+
+
+def test_frame_lookup_reports_a_page_that_is_not_present():
+    vaddr = 0x05A67000 + SITE
+    cam = ProcCamera({"/proc/148/cmdline": b"/usr/bin/im.elf\0", "/proc/148/maps": MAPS.encode(),
+                      "/proc/148/pagemap": pagemap_with(vaddr, 0)})
+    with pytest.raises(codepatch.CodePatchError, match="not present"):
+        codepatch.frame_from_proc(cam, 148, "libObj.so", SITE)
+
+
+def test_frame_lookup_reports_a_short_pagemap():
+    cam = ProcCamera({"/proc/148/cmdline": b"/usr/bin/im.elf\0", "/proc/148/maps": MAPS.encode(),
+                      "/proc/148/pagemap": bytes(64)})
+    with pytest.raises(codepatch.CodePatchError, match="pagemap"):
+        codepatch.frame_from_proc(cam, 148, "libObj.so", SITE)

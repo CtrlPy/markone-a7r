@@ -22,8 +22,11 @@ import sys
 import time
 from pathlib import Path
 
+from a7r.mempatch import MemPatchError, find_text_base
 from a7r.mprphys import check_address, dwell
-from a7r.physmem import PAGE, PhysMemError, check_page_before_write
+from a7r.physmem import PAGE, PhysMemError, check_page_before_write, parse_pagemap
+
+PROCESS_PID = 148  # im.elf in every boot seen (the boot snapshot keeps it)
 
 # frames that held the libObj.so page of the Image Size patch: 2026-11-10 (13:00), 2026-11-09
 CANDIDATE_FRAMES = {"libObj.so": [0x88BB7000, 0x88CC2000]}
@@ -31,6 +34,29 @@ CANDIDATE_FRAMES = {"libObj.so": [0x88BB7000, 0x88CC2000]}
 
 class CodePatchError(Exception):
     pass
+
+
+def frame_from_proc(camera, pid, lib, offset):
+    """Physical frame of `lib` + `offset` in process `pid`, from /proc read with Sony's file command."""
+    cmdline = bytes(camera.readFile(f"/proc/{pid}/cmdline") or b"")
+    if b"im.elf" not in cmdline:
+        raise CodePatchError(f"pid {pid} is not im.elf (cmdline {cmdline[:40]!r})")
+    maps = bytes(camera.readFile(f"/proc/{pid}/maps") or b"").decode("latin1")
+    if not maps.strip():
+        raise CodePatchError(f"reading /proc/{pid}/maps gave nothing")
+    try:
+        base = find_text_base(maps, lib)
+    except MemPatchError as e:
+        raise CodePatchError(str(e)) from e
+    index = (base + offset) // PAGE
+    pagemap = bytes(camera.readFile(f"/proc/{pid}/pagemap") or b"")
+    entry = pagemap[8 * index: 8 * index + 8]
+    if len(entry) != 8:
+        raise CodePatchError(f"/proc/{pid}/pagemap gave {len(pagemap)} bytes, entry {index} is beyond it")
+    try:
+        return parse_pagemap(entry) * PAGE
+    except PhysMemError as e:
+        raise CodePatchError(f"{lib} page at {base + offset - offset % PAGE:#x}: {e}") from e
 
 
 def find_frame(camera, file_page, site, old, new, candidates):
@@ -78,6 +104,8 @@ def main(argv=None):
                     choices=sorted(n for n, p in PATCHES.items() if p.file == "libObj.so"))
     ap.add_argument("--phys", action="append", default=[], type=lambda s: int(s, 0),
                     help="extra candidate frame (physical address), tried first")
+    ap.add_argument("--from-proc", action="store_true",
+                    help="look the frame up in /proc/<im.elf>/pagemap, read with Sony's file command, and try it first")
     args = ap.parse_args(argv)
     patch = PATCHES[args.patch]
     lib = args.lib.read_bytes()
@@ -101,7 +129,20 @@ def main(argv=None):
         start = time.monotonic()
         try:
             camera.readHasp()
-            report["results"] = apply(camera, patch, lib, candidates, log)
+            tried = list(candidates)
+            if args.from_proc:
+                off = patch.edits[0][0]
+                try:
+                    frame = frame_from_proc(camera, PROCESS_PID, patch.file, off)
+                    report["proc_frame"] = hex(frame)
+                    log(f"/proc: {patch.file} {off:#x} is in frame {frame:#x}")
+                    check_address(frame)
+                    tried = [frame] + [c for c in tried if c != frame]
+                except CodePatchError as e:
+                    report["proc_error"] = str(e)
+                    log(f"/proc lookup failed: {e}")
+            report["tried"] = [hex(c) for c in tried]
+            report["results"] = apply(camera, patch, lib, tried, log)
         finally:
             dwell(start)
 
