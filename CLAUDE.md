@@ -76,6 +76,8 @@ Outcome (camera, 2026-11-09): the aspect setting is `0x01070012` (1 = 3:2, 2 = 1
 
 ## Roadmap (risk order)
 
+**Paused 2026-11-10 by the owner.** Hand-over, open items and risks: [docs/STATUS.md](docs/STATUS.md).
+
 **Stage 0 — tooling and backup (no writes). Done 2026-11-09.**
 - Done with `a7r.stage0` through Sony-PMCA-RE updater mode (nothing installed on the camera): `Backup.bin` and a full `/dev/nflasha` dump, kept off-card with hashes. OpenMemories-Tweak and telnet were not needed.
 - Commit only hashes and notes, never the dump.

@@ -6,7 +6,7 @@ The A7R only offers 3:2 and 16:9. Its firmware is shared platform code that also
 
 ## Status (2026-11-10)
 
-Research project, actively testing on one camera. No firmware has been flashed.
+Research project, tested on one camera. No firmware has been flashed. **Development is paused**; [docs/STATUS.md](docs/STATUS.md) says where it stopped, what is open, the risks and where to pick it up.
 
 **The A7R now shoots a true 1:1** (as of 2026-11-10, with RAM-only fixes):
 - **Live view.** Square on the LCD and EVF, with the 1:1 icon.
