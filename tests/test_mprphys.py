@@ -172,6 +172,29 @@ def test_physical_address_must_be_a_ram_page():
     mprphys.check_address(PHYS)
 
 
+@pytest.mark.parametrize("addr", [
+    0x80000000,  # memrsv=0x28000@0x80000000
+    0x834E0000,  # klog, inside memrsv=0x13B1000@0x82D90000
+    0x8E680000,  # memrsv=0x1980000@0x8E680000
+    0x90000000,  # end of mem=256M@0x80000000
+    0x9C000000,  # mem=576M@0x9C000000, all reserved
+])
+def test_reserved_and_non_linux_memory_is_refused(addr):
+    with pytest.raises(mprphys.MprPhysError):
+        mprphys.check_address(addr)
+
+
+@pytest.mark.parametrize("addr", [0x80028000, 0x88BB7000, 0x88CC2000, 0x8A4B2000, 0x8E67F000])
+def test_ordinary_linux_ram_is_accepted(addr):
+    mprphys.check_address(addr)
+
+
+def test_a_range_must_lie_inside_one_ram_area():
+    mprphys.check_address(0x8E670000, size=0x10000)
+    with pytest.raises(mprphys.MprPhysError):
+        mprphys.check_address(0x8E670000, size=0x11000)
+
+
 # --- restart detection from the laptop's kernel log ---
 
 JOURNAL = """\

@@ -37,8 +37,11 @@ from a7r.physmem import PAGE
 DEFAULT_PHYS_PAGE = 0x8A4B2000
 FIRST_BLOCK = 0x138
 HEADER = 0x15            # glibc chunk size 16 | NON_MAIN_ARENA (0x4) | PREV_INUSE (0x1): a thread arena (camera, 2026-11-10)
-RAM_START = 0x80000000
-RAM_CHECKED_END = 0xA0000000  # every address seen so far is below 0x8b000000; stay well inside RAM
+# Linux RAM without the reserved areas, from the kernel command line in the firmware
+# (0800_appli/setting/kemco.txt): mem=256M@0x80000000, memrsv=0x28000@0x80000000,
+# memrsv=0x13B1000@0x82D90000 (holds klog), memrsv=0x1980000@0x8E680000; the 576M at 0x9C000000
+# is reserved as a whole. Anything else may be device space: never read or write it.
+RAM_AREAS = [(0x80028000, 0x82D90000), (0x84141000, 0x8E680000)]
 # Leaving service mode within ~0.66 s of entering it was followed by the camera staying away
 # for 67-111 s (4 of 4); sessions of 0.69 s and more returned normally, stage1 sessions take 1.7-3.2 s.
 MIN_SERVICE_SECONDS = 3.0
@@ -55,10 +58,13 @@ def dwell(start, minimum=MIN_SERVICE_SECONDS, clock=time.monotonic, sleep=time.s
         sleep(left)
 
 
-def check_address(paddr):
-    if paddr % PAGE or not RAM_START <= paddr < RAM_CHECKED_END:
-        raise MprPhysError(f"{paddr:#x} is not a page-aligned address inside RAM "
-                           f"({RAM_START:#x}-{RAM_CHECKED_END:#x})")
+def check_address(paddr, size=PAGE):
+    """Refuse anything but whole pages of ordinary Linux RAM."""
+    if paddr % PAGE or size <= 0 or size % PAGE:
+        raise MprPhysError(f"{paddr:#x} + {size:#x} is not page-aligned")
+    if not any(lo <= paddr and paddr + size <= hi for lo, hi in RAM_AREAS):
+        areas = ", ".join(f"{lo:#x}-{hi:#x}" for lo, hi in RAM_AREAS)
+        raise MprPhysError(f"{paddr:#x} + {size:#x} is not inside ordinary Linux RAM ({areas})")
 
 
 def block_offset(index):
