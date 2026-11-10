@@ -415,3 +415,39 @@ def test_session_reports_a_restart():
     cam.run = lambda cmd: next(pidof) if cmd == "pidof im.elf" else run(cmd)
     with pytest.raises(mprdump.MprDumpError, match="restarted"):
         session(cam)
+
+
+# --- restart detection across sessions ---
+
+@pytest.mark.parametrize("previous,wall,uptime,expected", [
+    (None, 1000.0, 50.0, False),                                  # first session
+    ({"wall": 1000.0, "uptime": 300.0}, 1060.0, 360.0, False),    # uptime kept pace
+    ({"wall": 1000.0, "uptime": 300.0}, 1060.0, 352.0, False),    # within tolerance
+    ({"wall": 1000.0, "uptime": 300.0}, 1060.0, 40.0, True),      # uptime went down
+    ({"wall": 1000.0, "uptime": 300.0}, 1900.0, 800.0, True),     # restarted long ago: above the old value, behind the clock
+])
+def test_restart_is_seen_when_uptime_falls_behind_the_wall_clock(previous, wall, uptime, expected):
+    assert mprdump.restarted_since(previous, wall, uptime) is expected
+
+
+def test_session_reports_a_restart_since_the_previous_session_and_checkpoints():
+    cam, marks = FakeShellCamera(camera_image()), []
+    report = session(cam, previous={"wall": 1000.0, "uptime": 300.0}, clock=lambda: 1060.0,
+                     checkpoint=lambda wall, uptime: marks.append((wall, uptime)))
+    assert report["restart_since_previous"] is True
+    assert marks == [(1060.0, 101.0), (1060.0, 102.0)]  # start and end of this session
+
+
+def test_session_without_a_restart_says_so():
+    cam = FakeShellCamera(camera_image())
+    report = session(cam, previous={"wall": 1000.0, "uptime": 41.0}, clock=lambda: 1060.0)
+    assert report["restart_since_previous"] is False
+
+
+def test_fill_is_refused_right_after_an_unnoticed_restart():
+    image, marks = camera_image(), []
+    with pytest.raises(mprdump.MprDumpError, match="restarted since the previous session"):
+        session(FakeShellCamera(image), targets=[("L", "FINE")], previous={"wall": 1000.0, "uptime": 300.0},
+                clock=lambda: 1060.0, checkpoint=lambda wall, uptime: marks.append((wall, uptime)))
+    assert image.phys_writes == []
+    assert marks == [(1060.0, 101.0)]  # recorded, so the next run starts from the new state

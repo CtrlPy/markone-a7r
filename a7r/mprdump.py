@@ -26,6 +26,7 @@ import json
 import re
 import struct
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -38,6 +39,7 @@ FILL_SIZES = ("L", "M", "S")
 STOCK_ASPECTS = ("3:2", "16:9")
 MAX_ESTIMATE = 64 << 20  # bytes; the largest stock estimate (3:2 L EXFINE max) is about 38 MiB
 BLOCK = 8                # {u32 target, u32 max}
+RESTART_TOLERANCE = 15.0  # seconds the uptime may lag behind the wall clock between two sessions
 
 ALLOWED = [re.compile(p) for p in (
     r"uname -a",
@@ -272,6 +274,18 @@ def _uptime(out):
     return float(m_.group(1))
 
 
+def restarted_since(previous, wall, uptime, tolerance=RESTART_TOLERANCE):
+    """True when the camera's uptime has not kept pace with the wall clock since the previous session.
+
+    previous is {"wall": seconds, "uptime": seconds} from the last session, or None. A restart
+    resumes from the boot snapshot and silently drops every RAM change, so it must not go unnoticed.
+    (A camera that was switched off in between looks the same: its uptime stands still.)
+    """
+    if not previous:
+        return False
+    return uptime + tolerance < previous["uptime"] + (wall - previous["wall"])
+
+
 def _summary(snap, expected):
     table = rows(snap.blocks, expected)
     return {
@@ -283,14 +297,26 @@ def _summary(snap, expected):
     }
 
 
-def run_session(run, camera, expected, build_pages, targets=(), undo=False, log=print):
+def run_session(run, camera, expected, build_pages, targets=(), undo=False, log=print,
+                previous=None, clock=time.time, checkpoint=lambda wall, uptime: None):
     """Dump and check the estimates of the running camera; apply the planned writes if any.
 
     build_pages: (library, ELF vaddr, 4096 bytes of the local 3.20 file) code pages that the
     camera must hold unchanged before anything else is trusted.
+    previous / clock / checkpoint: uptime bookkeeping across sessions (see restarted_since);
+    checkpoint(wall, uptime) is called at the start and at the end of the session.
     """
     pid = _one_pid(run(f"pidof {PROCESS}"))
     uptime = _uptime(run("cat /proc/uptime"))
+    wall = clock()
+    restarted = restarted_since(previous, wall, uptime)
+    checkpoint(wall, uptime)
+    if restarted:
+        log(f"RESTART: uptime is {uptime:.0f} s but the previous session ended at {previous['uptime']:.0f} s, "
+            f"{wall - previous['wall']:.0f} s ago. RAM changes made before that are gone.")
+        if targets:
+            raise MprDumpError("the camera restarted since the previous session; nothing written. "
+                               "Run again once that is understood.")
     maps = run(f"cat /proc/{pid}/maps")
     try:
         bases = {lib: find_text_base(maps, lib) for lib in ("libmprctrl.so", "libmpr.so")}
@@ -302,7 +328,8 @@ def run_session(run, camera, expected, build_pages, targets=(), undo=False, log=
         if mem.read(bases[lib] + vaddr, PAGE) != page:
             raise MprDumpError(f"{lib} page {vaddr:#x} in the camera differs from the local file: not this firmware build")
     snap = resolve(mem, bases["libmprctrl.so"], bases["libmpr.so"])
-    report = {"pid": pid, "uptime": uptime, "bases": bases, "still_mgr": snap.still_mgr,
+    report = {"pid": pid, "uptime": uptime, "wall": wall, "restart_since_previous": restarted,
+              "bases": bases, "still_mgr": snap.still_mgr,
               "size_table": snap.size_table_addr, "maps": maps, **_summary(snap, expected)}
     log(f"{PROCESS} pid {pid}, libmprctrl {bases['libmprctrl.so']:#x}, libmpr {bases['libmpr.so']:#x}, "
         f"stillMgr {snap.still_mgr:#x}")
@@ -316,6 +343,7 @@ def run_session(run, camera, expected, build_pages, targets=(), undo=False, log=
         log(f"after: {FILL_ASPECT} blocks {after['state_1_1']}, stock mismatches {len(after['stock_mismatches'])}")
     pid_end, uptime_end = _one_pid(run(f"pidof {PROCESS}")), _uptime(run("cat /proc/uptime"))
     report["uptime_end"] = uptime_end
+    checkpoint(clock(), uptime_end)
     if pid_end != pid or uptime_end < uptime:
         raise MprDumpError(f"the camera restarted during the session (pid {pid} -> {pid_end}, "
                            f"uptime {uptime} -> {uptime_end})")
@@ -332,6 +360,8 @@ def main(argv=None):
                     help=f"fill this {FILL_ASPECT} block with the formula value (RAM only), e.g. L:FINE")
     ap.add_argument("--undo", action="store_true", help="with --fill: write zeros back instead")
     ap.add_argument("--model", default="ILCE-7R")
+    ap.add_argument("--state", type=Path, default=Path("work/camera-session.json"),
+                    help="where the uptime of the last session is kept, to notice a restart in between")
     args = ap.parse_args(argv)
     if args.undo and not args.fill:
         ap.error("--undo needs --fill")
@@ -353,6 +383,11 @@ def main(argv=None):
 
     args.outdir.mkdir(parents=True, exist_ok=False)
     done = {}
+    previous = json.loads(args.state.read_text()) if args.state.is_file() else None
+
+    def checkpoint(wall, uptime):
+        args.state.parent.mkdir(parents=True, exist_ok=True)
+        args.state.write_text(json.dumps({"wall": wall, "uptime": uptime}))
 
     def log(msg):
         print(msg, flush=True)
@@ -384,7 +419,8 @@ def main(argv=None):
                 return out
 
             run("uname -a")  # flush the banner
-            report = run_session(run, camera, expected, build_pages, args.fill, args.undo, log)
+            report = run_session(run, camera, expected, build_pages, args.fill, args.undo, log,
+                                 previous=previous, checkpoint=checkpoint)
             (args.outdir / "maps.txt").write_text(report.pop("maps"))
             (args.outdir / "report.json").write_text(json.dumps(report, indent=1))
             done.update(report)
@@ -394,7 +430,7 @@ def main(argv=None):
     senserShellCommand(complete=complete)
     if not done:
         raise SystemExit("session did not complete; see the output above")
-    for r in done["rows"]:
+    for r in done.get("after", done)["rows"]:
         if r["aspect"] in STOCK_ASPECTS + (FILL_ASPECT,) and r["size"] in FILL_SIZES:
             mark = "ok" if r["ram"] == r["expected"] else "DIFF"
             print(f"{r['aspect']:>4} {r['size']} {r['quality']:<6} ram {r['ram']}  formula {r['expected']}  {mark}")
