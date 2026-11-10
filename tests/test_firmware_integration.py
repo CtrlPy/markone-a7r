@@ -113,3 +113,33 @@ def test_cautionconfig_patch_applies_to_stock_3_20():
     raw = lib.read_bytes()
     out = apply_patch(PATCHES["cautionconfig-aspect-menu-full-list"], raw)
     assert sum(a != b for a, b in zip(raw, out)) == 1
+
+
+def _one_to_one_geometry_ids():
+    from a7r.ids import IDS
+    return [pid for name, pid in IDS.items() if name.startswith(("DATSZ", "PXSZ")) and "_1_1" in name]
+
+
+def test_one_to_one_geometry_is_unprotected_and_empty_in_every_template():
+    ids = _one_to_one_geometry_ids()
+    assert len(ids) == 44
+    for f in sorted(TEMPLATES.glob("*.bin")):
+        props = BackupFile(f.read_bytes()).properties
+        assert {props[pid].attr for pid in ids} == {0}, f.name
+        assert all(props[pid].data == bytes(len(props[pid].data)) for pid in ids), f.name
+        assert (props[0x01070012].attr, props[0x01070012].data) == (0x60, b"\x01"), f.name
+
+
+def test_any_update_resets_the_one_to_one_geometry_but_keeps_the_aspect_with_r():
+    from a7r import firmup
+    from a7r.formats import plan_square
+    bk = template()
+    old = {pid: p.data for pid, p in bk.properties.items()}
+    old.update(plan_square(bk))
+    old[0x01070012] = b"\x03"
+    ids = _one_to_one_geometry_ids()
+    for option in ("w", "u", "r"):
+        after = firmup.merge(old, bk.properties, firmup.MODES[option])
+        assert all(after[pid] == bk.properties[pid].data for pid in ids), option
+    assert firmup.merge(old, bk.properties, firmup.MODES["r"])[0x01070012] == b"\x03"
+    assert firmup.merge(old, bk.properties, firmup.MODES["u"])[0x01070012] == b"\x01"

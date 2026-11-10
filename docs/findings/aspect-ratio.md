@@ -322,3 +322,6 @@ too, so it is a separate UI problem.
 7. Why the shutter-speed overlay does not update in 1:1 (UI layout per aspect?).
 8. Making the 1:1 state survive a battery pull without flashing (e.g. a PMCA
    app that re-applies the RAM fixes), and the Aspect Ratio menu entry.
+   Partly answered in [persistence.md](persistence.md): no app can start
+   itself at power-on, and a battery pull is survived only by a snapshot built
+   from a cold boot with the 1:1 geometry in the update's templates.
