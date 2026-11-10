@@ -33,14 +33,27 @@ camera safety rules are in [CLAUDE.md](CLAUDE.md); read both before starting.
 
 ## Layout
 
-- `a7r/` — Python package: `backup` (Backup.bin parser, dump/diff CLI),
-  `bkid` (BKID name → id tables from ELF files).
-- `tools/` — standalone scripts (`extract_dat.py`).
+- `a7r/` — Python package.
+  - Offline: `backup` (Backup.bin parser, dump/diff CLI), `bkid` (BKID name → id
+    tables from ELF files), `ids` (geometry property ids), `formats` (plan
+    geometry values and rollbacks for a hidden aspect), `mprtable` (layout of
+    the shot-counter tables), `patch` / `patches` (SHA-256-checked byte patches).
+  - Camera: `stage0` (read-only backup), `stage1` (allow-listed Backup.bin
+    writes with read-back), `stage3` (read-only service-shell commands),
+    `physmem` / `physprobe` (RAM patch through Sony's service-mode memory
+    command at a verified physical page).
+  - Kept for the record, not used: `mempatch` (needs our own binary, which
+    resets the camera), `overlay` (targets a library that is never loaded),
+    `wbidrop` (writes the warm-boot image: high risk, never run).
+- `native/a7rpoke/` — static ARM helper; running it reset the camera, not used.
+- `tools/` — standalone scripts (`extract_dat.py`) and headless Ghidra scripts (`tools/ghidra/`).
 - `tests/` — unit tests on synthetic data, firmware integration tests.
-- `docs/findings/` — verified findings with reproduction commands.
-- `docs/LOG.md` — experiment log.
-- `fw/`, `dumps/`, `.venv/` — local only, git-ignored. Reference clones
-  (fwtool.py, Sony-PMCA-RE, OpenMemories-Tweak) live in `fw/`.
+- `docs/findings/` — findings with reproduction commands; each says what is
+  confirmed on the camera and what is still a hypothesis.
+- `docs/LOG.md` — experiment log. Rows are never rewritten; a later row corrects an earlier one.
+- `fw/`, `dumps/`, `work/`, `ghidra_projects/`, `.venv/` — local only,
+  git-ignored. Reference clones (fwtool.py, Sony-PMCA-RE, OpenMemories-Tweak)
+  live in `fw/`.
 
 ## Environment
 

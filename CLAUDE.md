@@ -8,7 +8,13 @@ The original Sony A7R (ILCE-7R, 2013, firmware 3.20, final) is small, light and 
 
 **Goal:** let the A7R shoot in other aspect ratios, with the frame visible live on the LCD and EVF, so the photographer composes for the final format instead of cropping later.
 
-Target formats, in priority order: 1:1, 4:3, 5:4 / 4:5, 6:7, 16:9 (exists), 2.35:1, 65:24 (XPan), half-frame, plus portrait variants and a custom ratio.
+Target formats (owner's priorities, 2026-11-10):
+1. **1:1** — main goal (hidden native mode on the A7R).
+2. **XPan 65:24** — next; it must be a real crop, not a scaled 16:9 frame.
+3. **3:2** — must keep working exactly as stock.
+4. **16:9** — may serve as the experimental slot for XPan.
+
+4:3 is a known hidden mode but not a priority. 5:4, 4:5, 6:7, half-frame, portrait variants and a custom ratio are ideas, not an approved roadmap.
 
 Definition of done (per format):
 1. Live view (LCD + EVF) shows the format clearly (crop or mask).
@@ -27,6 +33,11 @@ This is meant to be a public, community project. Other owners of old Sony bodies
 - **Never write to the camera without a fresh backup** (full `nflasha` dump + `Backup.bin`) stored off the SD card, and only after the owner explicitly says go.
 - **Work in risk order, never skip a stage** (see Roadmap). In-memory and settings-level changes come before any flashing.
 - **Ask the owner before any irreversible step:** writing a modified firmware, writing to flash partitions, writing unknown Backup.bin keys, enabling telnet on a camera that will leave the house.
+- **Risk tiers (owner's policy, 2026-11-10).** Keeping the camera working comes first, but real experiments are expected:
+  - *Low risk* — static analysis; read-only diagnostics through tools already proven on this camera (Backup.bin reads, service-shell reads, `/proc/<pid>/mem` reads); checks of confirmed stock functions. Allowed within an approved plan.
+  - *Controlled risk* — RAM-only patches, runtime state changes, stock API calls, writes to Backup.bin properties we have already mapped, runtime re-initialisation, tests of hidden formats. Allowed after a risk assessment and the owner's approval. Each one needs: an exact target and expected behaviour; addresses, original bytes and values checked against 3.20; a backup of the affected data; the minimum number of changes; a read-back; a rollback and stop criteria. Never chain several unverified changes, and never run one whose effect on persistent storage is unknown.
+  - *High risk — not used in the current direction* — firmware flashing, direct NAND partition writes, bootloader/kernel/system partition changes, `a7r.wbidrop` or any other invalidation of the warm-boot image, forced cold boot by changing the flash snapshot, anything whose recovery could need reflashing or hardware access. Do not propose these as a practical next step without a separate decision by the owner.
+- **Nothing is reversible by assumption.** RAM patches survive a normal power-off (the power switch suspends to RAM); only a crash or a battery pull clears them. `Backup.bin` is persistent. Check reversibility for the specific mechanism every time.
 - Keep a log in `docs/LOG.md`: what was tried, on which firmware, result. Negative results are valuable.
 - The owner's language is Ukrainian; talk to him in Ukrainian. Repo docs, code and commit messages in English so the community can follow.
 
@@ -47,7 +58,7 @@ Firmware layout (inside `firmware.tar_unpacked/`): `0100_config`, `0110_backup`,
 
 Partitions in `0700_part_image/dev/`:
 - `nflasha3` — kernel `vmlinux.bin`, `initrd.img`, `av-cam.bin`, `sabin`, lens properties.
-- `nflasha5` — not unpacked by fwtool (37 MB), unknown.
+- `nflasha5` — not unpacked by fwtool (37 MB in the update). On the camera it is the 60 MiB "Warm Boot Image" mounted as `/wbi` (header magic `WBI1`): the snapshot the camera resumes from on every boot, including after a battery pull. Never write to it (see risk tiers).
 - `nflasha7` — main rootfs (`android/`, `setting/`, `etc/`, ...).
 - `nflasha15` — camera userland: `bin/` (`orb-server` = remote/Web API, `bk.elf`, `NsBkSet.elf`, ...), `lib/` (GUI engine, imaging libs), `scenario/`.
 - `nflasha16` — Android system (`app/`, `framework/`, `build.prop`).
@@ -61,26 +72,27 @@ Partitions in `0700_part_image/dev/`:
 
 Caveat: this is shared platform code (same libs ship on RX100-class bodies that do have 1:1 / 4:3), so presence ≠ enabled on A7R. But if the pipeline is there, the cheapest win is flipping the aspect setting to a hidden value. That is stage 1.
 
+Outcome (camera, 2026-11-09): the aspect setting is `0x01070012` (1 = 3:2, 2 = 16:9, 3 = 1:1, 0 = 4:3). Value 3 gives a square live view; shooting is blocked by a shot counter of 0. Current state, evidence and open questions: [docs/findings/aspect-ratio.md](docs/findings/aspect-ratio.md); every experiment: [docs/LOG.md](docs/LOG.md).
+
 ## Roadmap (risk order)
 
-**Stage 0 — tooling and backup (no writes).**
-- Set up Sony-PMCA-RE (`pmca-console` / `pmca-gui`) on the owner's laptop; confirm the camera is detected (`info`).
-- Install OpenMemories-Tweak via PMCA-RE. Enable telnet only for the session.
-- Dump: `dd if=/dev/nflasha of=/android/mnt/sdcard/DUMP.DAT bs=1M` (Android 2 path), copy off-card, hash it. Also save `Backup.bin` (location: find it in the dump / via Tweak; see OpenMemories-Tweak source for how it reads it).
+**Stage 0 — tooling and backup (no writes). Done 2026-11-09.**
+- Done with `a7r.stage0` through Sony-PMCA-RE updater mode (nothing installed on the camera): `Backup.bin` and a full `/dev/nflasha` dump, kept off-card with hashes. OpenMemories-Tweak and telnet were not needed.
 - Commit only hashes and notes, never the dump.
 
-**Stage 1 — settings level (reversible).**
-- Map Backup.bin: find the property id for still aspect ratio (start from `PARAMID_SYS_DATA_STILL_FORMAT_ASPECT_SET`, `bk.elf`, `NsBkSet.elf`, OpenMemories-Tweak's backup code).
-- Read current value with 3:2 and with 16:9 selected, diff them.
-- With owner approval, write the candidate values for 4:3 and 1:1. Check live view, JPEG, ARW, menu. Revert.
-- Also try the Remote Camera / Web API (`orb-server`): `getSupportedStillSize`/`setStillSize` style calls may reveal or accept hidden aspects without touching flash.
+**Stage 1 — settings level. Done for 1:1 and the 16:9 slot; reached its limit.**
+- Aspect setting found (`0x01070012`), 1:1 geometry and JPEG estimates written with `a7r.stage1` (before/after read-back), XPan output sizes tried in the 16:9 slot and rolled back.
+- Result: square live view, but the camera will not shoot in 1:1 (counter 0), and PXSZ only sets the output size, not the crop.
+- Not tried yet: the Remote Camera / Web API (`orb-server`, `libScalarDaemon.so`), which may read or set the aspect without the menu.
 
-**Stage 2 — static analysis.**
-- Ghidra on `libObj.so`, `CautionConfig.so`, `libmprctrl.so`, `wrapperImageAspect.so`, GUI engine libs: where is the list of selectable aspects built per model, and what gates 1:1/4:3.
-- Find how live view is cropped / masked for 16:9; that's the hook for custom ratios.
+**Stage 2 — static analysis. Ongoing.**
+- Ghidra (headless scripts in `tools/ghidra/`) on `libObj.so`, `CautionConfig.so`, `libmprctrl.so`, `libmpr.so`. Known so far: the Image Size gate (libObj), the Aspect Ratio item list chosen at init from the model type (CautionConfig), and the shot-counter tables (libmprctrl/libmpr, `a7r/mprtable.py`).
+- Open: how the live-view frame and the sensor crop window are set per aspect (needed for a true XPan crop).
 
-**Stage 3 — dynamic analysis (telnet).**
-- Processes, logs (`appdbglv.sh`), how settings are applied at runtime. In-memory patches only (lost on reboot).
+**Stage 3 — dynamic analysis, RAM only. In progress.**
+- Access: the Sony service ("senser") mode terminal through Sony-PMCA-RE; `a7r.stage3` runs allow-listed read-only commands.
+- RAM writes go only through Sony's own service-mode memory command at the physical address of a page that was first verified (`a7r.physprobe`). Running our own binaries on the camera reset it twice, even read-only, so we no longer do it.
+- RAM patches survive a normal power-off (suspend to RAM) and are cleared by a crash or a battery pull, which resumes from the warm-boot snapshot.
 
 **Stage 4 — fallback / extension: our own PMCA app "Formats"** (OpenMemories-Framework, Java, Android 2.3 API):
 - Live view with masks for all target formats, wheel to switch, remembers last format.
@@ -88,8 +100,9 @@ Caveat: this is shared platform code (same libs ship on RX100-class bodies that 
 - Reference apps that already drive live view: obs1dium/focusbracket, jonasjuffinger/TimeLapse.
 - Limitation: works only while the app is running.
 
-**Stage 5 — patched firmware (last resort, owner approval required).**
+**Stage 5 — patched firmware (last resort, on hold).**
 - Repack via fwtool `pack` from the user's own official update; minimal diffs; documented recovery path (official updater, then UART if ever needed).
+- On hold: repacked `nflasha15` images have bricked an ILCE-5000 and an ILCE-7RM2 with no known recovery ([prior art](docs/findings/community-prior-art.md)). This stage, and anything that touches the warm-boot image, is high risk and needs a separate decision by the owner.
 
 ## Tools
 
