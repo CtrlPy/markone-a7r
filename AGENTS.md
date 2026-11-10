@@ -38,12 +38,13 @@ camera safety rules are in [CLAUDE.md](CLAUDE.md); read both before starting.
     tables from ELF files), `ids` (geometry property ids), `formats` (plan
     geometry values and rollbacks for a hidden aspect), `mprtable` (layout of
     the shot-counter tables), `patch` / `patches` (SHA-256-checked byte patches).
-  - Camera: `stage0` (read-only backup), `stage1` (allow-listed Backup.bin
-    writes with read-back), `stage3` (read-only service-shell commands),
-    `physmem` / `physprobe` (RAM patch through Sony's service-mode memory
-    command at a verified physical page), `mprdump` (read the shot-counter
-    estimates of the running camera and compare them with the formula;
-    `--fill` writes single 1:1 blocks in RAM behind the same checks).
+  - Camera, terminal-free (use these): `stage0` (read-only backup, updater
+    mode), `stage1` (allow-listed Backup.bin writes with read-back),
+    `mprphys` (check and fill the 1:1 shot-counter estimates in RAM),
+    `codepatch` (verified code patch in RAM, `--scan` finds the page),
+    `usbwatch` (restart check from the laptop's kernel log).
+  - Camera, service terminal (crashes the camera often, reference only):
+    `stage3` (read-only shell commands), `physmem` / `physprobe`, `mprdump`.
   - Kept for the record, not used: `mempatch` (needs our own binary, which
     resets the camera), `overlay` (targets a library that is never loaded),
     `wbidrop` (writes the warm-boot image: high risk, never run).

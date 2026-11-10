@@ -89,10 +89,10 @@ Outcome (camera, 2026-11-09): the aspect setting is `0x01070012` (1 = 3:2, 2 = 1
 - Ghidra (headless scripts in `tools/ghidra/`) on `libObj.so`, `CautionConfig.so`, `libmprctrl.so`, `libmpr.so`. Known so far: the Image Size gate (libObj), the Aspect Ratio item list chosen at init from the model type (CautionConfig), and the shot-counter tables (libmprctrl/libmpr, `a7r/mprtable.py`).
 - Open: how the live-view frame and the sensor crop window are set per aspect (needed for a true XPan crop).
 
-**Stage 3 — dynamic analysis, RAM only. In progress.**
-- Access: the Sony service ("senser") mode terminal through Sony-PMCA-RE; `a7r.stage3` runs allow-listed read-only commands.
-- RAM writes go only through Sony's own service-mode memory command at the physical address of a page that was first verified (`a7r.physprobe`). Running our own binaries on the camera reset it twice, even read-only, so we no longer do it.
-- RAM patches survive a normal power-off (suspend to RAM) and are cleared by a crash or a battery pull, which resumes from the warm-boot snapshot.
+**Stage 3 — dynamic analysis, RAM only. 1:1 working (2026-11-10).**
+- **Do not use the service terminal** (`a7r.stage3`, `serviceshell`, `mprdump`, `physprobe`): closing it crashed the kernel after about half of the sessions (findings §12). Use terminal-free sessions only (Sony's Backup and MemoryDump commands: `a7r.stage1 --mode service`, `a7r.mprphys`, `a7r.codepatch`), at least 3 s in service mode. Check every session afterwards with `a7r.usbwatch` (USB storage back after ~0.8 s = fine, 9–12 s = restart).
+- RAM writes go only through Sony's MemoryDump at the physical address of a page verified in full first (heap page against the formula, code page against the library file), and only inside ordinary Linux RAM (`a7r.mprphys.RAM_AREAS`, from the kernel command line).
+- RAM changes survive the power switch (suspend to RAM) and are cleared by a crash or a battery pull, which resumes from the warm-boot snapshot. The 1:1 procedure is in findings §11.
 
 **Stage 4 — fallback / extension: our own PMCA app "Formats"** (OpenMemories-Framework, Java, Android 2.3 API):
 - Live view with masks for all target formats, wheel to switch, remembers last format.

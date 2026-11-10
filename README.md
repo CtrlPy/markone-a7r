@@ -8,18 +8,28 @@ The A7R only offers 3:2 and 16:9. Its firmware is shared platform code that also
 
 Research project, actively testing on one camera. No firmware has been flashed.
 
-What works, confirmed on the camera:
-- **Hidden 1:1 aspect.** Setting the aspect property in `Backup.bin` (`0x01070012 = 3`) gives a square live view on the LCD and EVF, with no errors.
-- **1:1 image geometry.** We filled the empty 1:1 pixel sizes and JPEG size estimates in `Backup.bin` (L 4912×4912, M 3200×3200, S 2448×2448).
-- **Image Size menu in 1:1.** It works after a 4-byte patch to `libObj.so`, applied in RAM only through Sony's own service-mode memory command.
-- **3:2 and 16:9.** Both still work as stock after every experiment.
+**The A7R now shoots a true 1:1** (as of 2026-11-10, with RAM-only fixes):
+- **Live view.** Square on the LCD and EVF, with the 1:1 icon.
+- **Shot counter.** Shown as usual.
+- **Image Size.** L, M and S can be selected.
+- **Files.** JPEGs of 4912×4912 (L), 3200×3200 (M) and 2448×2448 (S). Sony's own metadata says `AspectRatio: 1:1`.
+- **Real crop.** Object proportions match a 3:2 shot of the same scene: this is a crop of the sensor, not a squeezed frame.
+- **3:2 and 16:9.** They keep working as stock.
 
-What does not work yet:
-- **1:1 shooting.** The shot counter shows 0 and "no space on memory card", so the camera does not release the shutter. Static analysis points to the cause (see below). A read-only check on the camera and a RAM-only fix are planned.
-- **Aspect Ratio menu.** It still lists only 3:2 and 16:9. The list is chosen once at start-up from the model type, so the hidden aspects are set through the service channel instead.
-- **XPan 65:24.** Writing XPan output sizes into the 16:9 slot gave a 7360×2720 JPEG, but it is the 16:9 frame squeezed vertically, not a crop. A real XPan crop needs a different crop window, which is still to be found.
+How it works, in short:
+1. **Settings.** The aspect setting and the empty 1:1 image sizes are written once to the camera's settings (`Backup.bin`); these persist.
+2. **RAM fixes.** The camera computes its per-shot size estimates once at start-up and resumes from a boot snapshot, so the 1:1 estimates stay zero (counter 0, "no space on memory card"). We fill them in RAM, and apply a 4-byte RAM patch to `libObj.so` for the Image Size menu.
+3. **Persistence.** Both RAM changes survive the power switch (the camera suspends to RAM). A battery pull clears them; then two short service sessions apply them again.
 
-**Why the counter is probably 0.** The remaining-shots count divides free space by per-shot size estimates. The camera computes these once at start-up and keeps them in RAM. There is no code path that rebuilds them later. The A7R resumes from a boot snapshot, even after a battery pull, so they were most likely computed while the 1:1 values were still zero. The tables are in the main camera process, and their layout is now known (`a7r/mprtable.py`). Reading them on the camera will confirm or reject this. Details and evidence are in [docs/findings/aspect-ratio.md](docs/findings/aspect-ratio.md); every experiment is in [docs/LOG.md](docs/LOG.md).
+Not working yet:
+- **Shutter-speed overlay.** In 1:1 it does not update while the dial is turned. The new speed is applied, so this is a display issue only.
+- **Aspect Ratio menu.** It still lists only 3:2 and 16:9 (the list is fixed at start-up), so 1:1 is set through the service channel.
+- **RAW and RAW+JPEG in 1:1.** Not tested yet.
+- **XPan 65:24.** Writing XPan output sizes into the 16:9 slot gave a squeezed 16:9 frame, not a crop. A real XPan crop needs a different crop window, which is still to be found.
+
+Details and evidence: [docs/findings/aspect-ratio.md](docs/findings/aspect-ratio.md) (§11 for the procedure); every experiment, including the failures, is in [docs/LOG.md](docs/LOG.md).
+
+**Warning for anyone with a first-gen A7/A7R/A7S:** Sony-PMCA-RE's service *terminal* (`serviceshell`) crashed this camera's kernel after roughly half of the sessions over two days. The camera restarts, losing RAM changes and any settings not yet saved. Our camera tools now use only Sony's service commands, without the terminal, and stay in service mode for at least 3 s; see §12 of the findings.
 
 Format priorities: **1:1** first, then a true **XPan 65:24** crop. 3:2 must keep working as stock, and 16:9 is the experimental slot for XPan. 4:3 is a known hidden mode but not a priority. Other ratios (5:4, 4:5, 6:7, half-frame, custom) are ideas, not a plan.
 
@@ -61,12 +71,16 @@ Offline, no camera:
 - `a7r.patch`, `a7r.patches` — verified byte patches for the user's own firmware files (SHA-256 checked).
 - `tools/extract_dat.py` — carve the DAT out of the 2023-style updater exe; `tools/ghidra/` — headless Ghidra scripts used for the findings.
 
-Camera tools (they use [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE); read each module's docstring first):
+Camera tools (they use [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE); read each module's docstring first). The ones marked *terminal-free* use only Sony's service commands:
 - `a7r.stage0` — read-only backup (`Backup.bin` + flash dump) in updater mode.
-- `a7r.stage1` — write allow-listed `Backup.bin` properties with before/after verification (`--mode service` keeps RAM state).
-- `a7r.stage3` — read-only shell commands over the service-mode terminal.
-- `a7r.physprobe` — RAM-only code patch through Sony's service-mode memory command at the physical address, after checking the whole page against the file.
-- `a7r.mprdump` — read the shot-counter estimates in the running camera and compare them with what the start-up code would compute from the current `Backup.bin`. Read-only by default; `--fill` writes one 1:1 block at a time in RAM, behind the same checks.
+- `a7r.stage1` — write allow-listed `Backup.bin` properties with before/after verification (`--mode service` keeps RAM state; terminal-free).
+- `a7r.mprphys` — check the shot-counter estimates in RAM against the formula and fill the 1:1 ones (`--fill SIZE:QUALITY`), through MemoryDump after a full-page check (terminal-free).
+- `a7r.codepatch` — apply a verified code patch in RAM (`--scan` finds the library page in RAM first) (terminal-free).
+- `a7r.usbwatch` — tell from the laptop's kernel log whether a service session ended in a camera restart.
+
+Uses the service terminal, which crashes the camera often (kept for reference):
+- `a7r.stage3` — read-only shell commands.
+- `a7r.mprdump`, `a7r.physprobe` — the first versions of the estimate check and the code patch.
 
 Kept for the record, not recommended:
 - `a7r.mempatch` and `native/a7rpoke` — running our own binary reset the camera.

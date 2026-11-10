@@ -18,8 +18,13 @@ history is in [../LOG.md](../LOG.md).
 | Camera resumes from a flash snapshot, even after a battery pull | Confirmed (camera: dmesg `WARMBOOT`, `/proc/ssboot`) | LOG |
 | Shot counter reads per-shot JPEG estimates that libmprctrl computes once at init and libmpr dereferences at runtime | Confirmed (static) | §10 |
 | No stock code path rebuilds those estimates after init | Confirmed (static: `MprCtrl::Init` runs once, no `Term`) | §10 |
-| The 1:1 estimate blocks in RAM are zero, and that is why the counter is 0 | **Hypothesis**; next read-only check on the camera | §10 |
-| Filling those blocks in RAM makes 1:1 shootable | **Hypothesis** | §10 |
+| The 1:1 estimate blocks in RAM are zero, and that is why the counter is 0 | Confirmed (camera, read-back + fill) | §10, §11 |
+| **With the nine 1:1 blocks filled in RAM the camera shoots 1:1**: counter shown, 4912×4912 / 2448×2448 JPEG, true sensor crop | Confirmed (camera, 2026-11-10) | §11 |
+| Image Size menu in 1:1 with the libObj patch applied without the terminal | Confirmed (camera, 2026-11-10) | §11 |
+| Closing Sony's service terminal crashes the kernel in about half of the sessions; terminal-free sessions of ≥ 3 s do not | Confirmed (camera, `/proc/klog`, laptop USB log, two days) | §12 |
+| Shutter-dial overlay does not update while turning in 1:1 (the value is applied) | Open, separate UI issue | §11 |
+| Aspect Ratio menu still lists only 3:2 and 16:9 | Open (list fixed at init, §9) | §9 |
+| RAW and RAW+JPEG in 1:1 | Not tested | — |
 | What decides the sensor crop window per aspect (needed for a true XPan crop) | Open | §8 |
 
 ## 1. The factory Backup.bin templates are in the firmware
@@ -226,12 +231,11 @@ Consequences:
 - If the snapshot was taken while the 1:1 DATSZ values were zero (they were,
   in every Sony template), the 1:1 blocks hold `{0, 0}` in RAM no matter what
   Backup.bin says now. A zero per-shot size gives a zero remain count. This
-  matches the camera (counter 0, "no space") but is **not yet confirmed**.
-- The blocks are ordinary heap data of `im.elf`. They can be read with
-  `busybox dd` from `/proc/<pid>/mem` (read mechanism already used safely) and
-  written with Sony's service-mode memory command at the physical address
-  (the mechanism used for the libObj patch), with no flash write and no cold
-  boot. A battery pull resumes from the snapshot and undoes it.
+  matches the camera (counter 0, "no space"); **confirmed on 2026-11-10** (§11).
+- The blocks are ordinary heap data of `im.elf` and can be changed in RAM with
+  Sony's service-mode memory command at the physical address, with no flash
+  write and no cold boot. A battery pull resumes from the snapshot and undoes
+  it. (Reading them through the service terminal turned out to be unsafe, §12.)
 
 Reproduce:
 ```
@@ -239,16 +243,82 @@ Reproduce:
 # Ghidra: tools/ghidra/DecompileRefsTo.java on libmpr.so finds the readers of 0x8665f8 (image base 0x10000)
 ```
 
+## 11. 1:1 works with RAM-only fixes (camera, 2026-11-10)
+
+Procedure that makes the A7R shoot 1:1 (each step is a terminal-free service
+session, §12; all changes except the aspect setting live in RAM only):
+
+1. Backup.bin holds the 1:1 geometry and estimates (§6; done on 2026-11-09
+   with `a7r.stage1`) and the aspect setting `0x01070012 = 03`
+   (`a7r.stage1 --mode service --set 0x01070012=03`).
+2. `a7r.mprphys --fill L:STD ... --fill S:EXFINE` writes the nine 1:1 L/M/S
+   estimate blocks with the values `CalcStillData_JPG` gives for the current
+   Backup.bin (`a7r.mprtable.expected_jpeg_estimates`). The estimate page is
+   at virtual 0x0ac09000 / physical 0x8a4b2000 after every resume from the
+   snapshot (block i at +0x138 + 16·i, glibc chunk header 0x15, thread arena).
+   Before each 8-byte write the whole page is compared with the formula: every
+   non-1:1 block must match exactly (18 of them are non-zero), so a wrong page
+   cannot pass.
+3. `a7r.codepatch --scan` applies `libobj-image-size-aspect-fallback`. The
+   libObj code frame moves between boots (0x88cc2000, 0x88bb7000, 0x88f60000
+   seen), so the tool searches ordinary Linux RAM through MemoryDump (about
+   8.5 MB/s) for a page equal to the library file apart from the patch site,
+   and writes only there.
+
+Result on the camera: square live view on LCD and EVF, 1:1 icon, shot counter
+shown, Image Size L/M/S selectable (labels show the 3:2 megapixels), JPEGs of
+4912×4912 (L) and 2448×2448 (S), Quality Fine, Sony's maker note
+`AspectRatio: 1:1`. Object proportions match the 3:2 reference (pot
+width/height ≈ 1.05 vs ≈ 1.10; a squeezed 3:2 frame would give ≈ 0.70): a true
+sensor crop.
+
+Persistence: the power switch suspends to RAM and keeps everything. A battery
+pull resumes from the snapshot and clears steps 2–3; the aspect setting
+(step 1) stays, and the camera then shows a square view with a counter of 0
+until steps 2–3 are run again (two short sessions).
+
+Known issue: in 1:1 the on-screen overlay that follows the shutter-speed dial
+does not update while turning; the new speed is applied (visible after a
+half-press, EXIF shows it). It froze with the Image Size patch on 2026-11-09
+too, so it is a separate UI problem.
+
+## 12. The service terminal crashes the kernel; terminal-free sessions do not (2026-11-10)
+
+- Sony-PMCA-RE's service shell opens a USB terminal on the running camera
+  (`usbg_sen_ldisc_open`). Within 0.06–3 s after it is closed the kernel often
+  oopses (`/proc/klog`: NULL pointer in `free_block` from a kworker, or a call
+  through NULL in `hdmi_workqueue`), and Sony's handler resets through the
+  watchdog (`kernel BUG at arch/arm/mach-cxd90014/wdt.c:182`). Over two days
+  19 of 36 terminal sessions ended that way, independent of the aspect, of
+  RAM patches and of what ran in the session; most of these restarts went
+  unnoticed on 2026-11-09. Restarts drop every RAM change and roll the
+  settings back to the last flash save.
+- Service sessions that use only Sony's commands (Backup read/write,
+  MemoryDump) have not crashed, provided they stay in service mode for at
+  least about 0.7 s; very short ones (0.4–0.66 s) made the camera disappear
+  for 67–111 s (4 of 4). The tools keep at least 3 s.
+- A restart can be seen from the laptop without touching the camera: after a
+  session the camera returns as USB storage in about 0.8 s, after a crash in
+  9–12 s (`a7r.usbwatch`, matched against `/proc/uptime` and `/proc/klog`).
+- After a resume from the snapshot `/proc/uptime` starts at about 57 s, and it
+  does not advance during a suspend.
+- Linux RAM per the kernel command line in the firmware
+  (`0800_appli/setting/kemco.txt`): `mem=256M@0x80000000` with reserved areas
+  0x80000000+0x28000, 0x82D90000+0x13B1000 (klog at 0x834E0000) and
+  0x8E680000+0x1980000; the 576 MiB at 0x9C000000 are reserved as a whole. The
+  tools refuse MemoryDump anywhere else.
+
 ## Open questions
 
 1. ~~Setting value for 1:1 vs 4:3~~ — 3 = 1:1, 0 = 4:3 (camera, 2026-11-09).
-2. Are the 1:1 estimate blocks in RAM `{0, 0}` while the 3:2 blocks match
-   `CalcStillData_JPG` on the current Backup.bin? (read-only camera check)
-3. With the blocks filled, does the camera shoot 1:1, and what do the JPEG and
-   ARW contain? Do other init-time checks block the shutter (buffer
-   allocation, APS-C table key 11, RAW / RAW+JPEG keys)?
+2. ~~Are the 1:1 estimate blocks zero in RAM?~~ Yes (§11).
+3. ~~Does the camera shoot 1:1 with the blocks filled?~~ JPEG yes (§11). Open:
+   RAW and RAW+JPEG (other StillSizeInfo keys), APS-C crop mode (key 11).
 4. What sets the sensor crop window per aspect? Needed for a true XPan crop;
    candidates: `libScalarDaemon.so` `FocusAreaPosition::getYUVLayout`,
    `PARAMID_PREVIEW_ASPECT_TYPE`.
 5. Origin of inhibit ids `0x94`/`0x95`/`0x96`/`0x414` (menu greying, second layer).
 6. Units of `DATSZ` (KiB assumed).
+7. Why the shutter-speed overlay does not update in 1:1 (UI layout per aspect?).
+8. Making the 1:1 state survive a battery pull without flashing (e.g. a PMCA
+   app that re-applies the RAM fixes), and the Aspect Ratio menu entry.
