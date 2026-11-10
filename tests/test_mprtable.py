@@ -92,3 +92,67 @@ def test_libmpr_keeps_a_pointer_to_the_table_not_a_copy():
     elf = mprtable.Elf(LIBMPR)
     assert elf.relative_target(mprtable.LIBMPR_GOT_SSI_PTR) == mprtable.LIBMPR_SSI_PTR
     assert elf.relative_target(mprtable.LIBMPR_GOT_SSI_NUM) == mprtable.LIBMPR_SSI_NUM
+
+
+# --- per-shot estimate formula (MprCtrlStillMgr::CalcStillData_JPG) ---
+
+def test_estimate_adds_header_screennail_and_page_padding_for_large_images():
+    # 1001 KiB = 1025024 bytes, padded to 4096 -> +3072
+    target, maximum = mprtable.jpeg_estimate(
+        tgt_kib=1001, max_kib=2000, hdr_kib=20, scn_tgt_kib=300, scn_max_kib=400,
+        x40_kib=3, x44_kib=40, area=4_000_000)
+    assert target == 1025024 + 20480 + 307200 + 3072 + 40960 + 3072
+    assert maximum == 2048000 + 20480 + 409600 + 3072 + 40960 + 0
+
+
+def test_estimate_skips_screennail_and_padding_at_or_below_the_area_threshold():
+    target, maximum = mprtable.jpeg_estimate(
+        tgt_kib=1001, max_kib=2000, hdr_kib=20, scn_tgt_kib=300, scn_max_kib=400,
+        x40_kib=3, x44_kib=40, area=3_999_999)
+    assert target == 1025024 + 20480 + 3072 + 40960
+    assert maximum == 2048000 + 20480 + 3072 + 40960
+
+
+def test_estimate_is_zero_when_the_backup_value_is_zero():
+    """This is what leaves the hidden aspects at {0, 0}: empty DATSZ slots at init."""
+    assert mprtable.jpeg_estimate(0, 0, 20, 300, 400, 3, 40, 24_000_000) == (0, 0)
+    assert mprtable.jpeg_estimate(0, 2000, 20, 300, 400, 3, 40, 24_000_000)[0] == 0
+
+
+@pytest.mark.firmware
+@pytest.mark.skipif(not MPRCTRL.is_file(), reason="firmware not unpacked in fw/out")
+def test_formula_constants_are_the_literals_calc_still_data_jpg_loads():
+    elf = mprtable.Elf(MPRCTRL)
+    assert elf.u32(0x16148) == mprtable.HDR_ID
+    assert elf.u32(0x1614C) == mprtable.X40_ID
+    assert elf.u32(0x16150) == mprtable.X44_ID
+    assert elf.u32(0x157A0) == mprtable.SCN_AREA_THRESHOLD
+
+
+@pytest.mark.firmware
+@pytest.mark.skipif(not MPRCTRL.is_file(), reason="firmware not unpacked in fw/out")
+def test_pixel_size_and_screennail_id_tables_follow_the_table_aspect_order():
+    from a7r.bkid import elf_load_segments, find_name_id_pairs
+    elf = mprtable.Elf(MPRCTRL)
+    names = find_name_id_pairs(elf.raw, elf_load_segments(MPRCTRL), 403)
+    pxsz, scn = mprtable.pxsz_ids(elf), mprtable.scn_ids(elf)
+    for s, size in enumerate(mprtable.SIZES):
+        for a, aspect in enumerate(mprtable.TABLE_ASPECTS):
+            assert pxsz[s * 5 + a] == names[f"BKID_IMAGING_PXSZ_STL_{size}_{aspect.replace(':', '_')}"]
+    for a, aspect in enumerate(mprtable.TABLE_ASPECTS):
+        stem = f"BKID_IMAGING_DATSZ_JPGSCN_{aspect.replace(':', '_')}"
+        assert scn[a] == (names[stem + "_TGT"], names[stem + "_MAX"])
+
+
+@pytest.mark.firmware
+@pytest.mark.skipif(not MPRCTRL.is_file(), reason="firmware not unpacked in fw/out")
+def test_expected_estimates_from_the_factory_template():
+    """3:2 and 16:9 get real sizes; the hidden 1:1 slots come out as {0, 0}."""
+    from a7r.backup import BackupFile
+    template = MPRCTRL.parents[4] / "0110_backup" / "SYSMUSASHI-DSLR" / "ICH_UUG" / "CX77900_UC2.bin"
+    props = {pid: p.data for pid, p in BackupFile(template.read_bytes()).properties.items()}
+    est = mprtable.expected_jpeg_estimates(props, mprtable.Elf(MPRCTRL))
+    assert len(est) == 60
+    assert est[mprtable.jpeg_index("L", "3:2", "FINE")] == (12603392, 19609600)
+    assert est[mprtable.jpeg_index("L", "16:9", "STD")] == (7524352, 11540480)
+    assert all(est[i] == (0, 0) for i in mprtable.aspect_indices("1:1"))
