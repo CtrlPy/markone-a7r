@@ -66,6 +66,7 @@ Camera tools (they use [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE); re
 - `a7r.stage1` — write allow-listed `Backup.bin` properties with before/after verification (`--mode service` keeps RAM state).
 - `a7r.stage3` — read-only shell commands over the service-mode terminal.
 - `a7r.physprobe` — RAM-only code patch through Sony's service-mode memory command at the physical address, after checking the whole page against the file.
+- `a7r.mprdump` — read the shot-counter estimates in the running camera and compare them with what the start-up code would compute from the current `Backup.bin`. Read-only by default; `--fill` writes one 1:1 block at a time in RAM, behind the same checks.
 
 Kept for the record, not recommended:
 - `a7r.mempatch` and `native/a7rpoke` — running our own binary reset the camera.
