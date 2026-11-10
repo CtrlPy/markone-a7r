@@ -196,3 +196,21 @@ def test_a_session_without_return_is_open():
     journal = "\n".join(JOURNAL.splitlines()[:3]) + "\n"
     (s,) = usbwatch.service_sessions(journal)
     assert s.back_after is None and s.restarted is None
+
+
+# --- minimum time in service mode ---
+
+def test_dwell_sleeps_until_the_minimum_has_passed():
+    slept = []
+    mprphys.dwell(start=100.0, minimum=3.0, clock=lambda: 100.8, sleep=slept.append)
+    assert slept == [pytest.approx(2.2)]
+
+
+def test_dwell_does_not_sleep_after_a_long_session():
+    slept = []
+    mprphys.dwell(start=100.0, minimum=3.0, clock=lambda: 104.0, sleep=slept.append)
+    assert slept == []
+
+
+def test_default_minimum_is_as_long_as_the_sessions_that_never_failed():
+    assert mprphys.MIN_SERVICE_SECONDS >= 3.0

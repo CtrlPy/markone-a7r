@@ -39,10 +39,20 @@ FIRST_BLOCK = 0x138
 HEADER = 0x15            # glibc chunk size 16 | NON_MAIN_ARENA (0x4) | PREV_INUSE (0x1): a thread arena (camera, 2026-11-10)
 RAM_START = 0x80000000
 RAM_CHECKED_END = 0xA0000000  # every address seen so far is below 0x8b000000; stay well inside RAM
+# Leaving service mode within ~0.66 s of entering it was followed by the camera staying away
+# for 67-111 s (4 of 4); sessions of 0.69 s and more returned normally, stage1 sessions take 1.7-3.2 s.
+MIN_SERVICE_SECONDS = 3.0
 
 
 class MprPhysError(Exception):
     pass
+
+
+def dwell(start, minimum=MIN_SERVICE_SECONDS, clock=time.monotonic, sleep=time.sleep):
+    """Stay in service mode until at least `minimum` seconds have passed since `start`."""
+    left = minimum - (clock() - start)
+    if left > 0:
+        sleep(left)
 
 
 def check_address(paddr):
@@ -148,6 +158,13 @@ def main(argv=None):
             f.write(msg + "\n")
 
     def complete(camera):  # no terminal is opened in this session
+        start = time.monotonic()
+        try:
+            work(camera)
+        finally:
+            dwell(start)
+
+    def work(camera):
         camera.readHasp()
         image = camera.getBackupPresetData(True)
         (args.outdir / "Backup.bin").write_bytes(image)
