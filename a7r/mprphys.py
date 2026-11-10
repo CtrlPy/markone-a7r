@@ -9,7 +9,8 @@ The 60 full-frame JPEG estimate blocks ({u32 target, u32 max}, see
 a7r.mprtable) are 8-byte heap allocations of im.elf in one page. After a resume
 from the boot snapshot the page is at the same place every time (virtual
 0x0ac09000, physical 0x8a4b2000 on 2026-11-10), block i at page offset
-0x138 + 16*i, each preceded by its allocation header (size 0x11). Before the
+0x138 + 16*i, each preceded by its glibc allocation header (0x15: size 16 in a
+thread arena). Before the
 page is trusted, all 60 blocks must agree with the formula applied to the
 camera's current Backup.bin (the 1:1 L/M/S blocks may be zero or already
 filled) and all 60 headers must be there. A wrong page cannot pass that.
@@ -35,7 +36,7 @@ from a7r.physmem import PAGE
 
 DEFAULT_PHYS_PAGE = 0x8A4B2000
 FIRST_BLOCK = 0x138
-HEADER = 0x11            # chunk size 16 | PREV_INUSE
+HEADER = 0x15            # glibc chunk size 16 | NON_MAIN_ARENA (0x4) | PREV_INUSE (0x1): a thread arena (camera, 2026-11-10)
 RAM_START = 0x80000000
 RAM_CHECKED_END = 0xA0000000  # every address seen so far is below 0x8b000000; stay well inside RAM
 

@@ -31,7 +31,7 @@ def camera_page(blocks=None, fill=()):
     page = bytearray(b"\xa5" * PAGE)
     for i, b in enumerate(blocks):
         off = mprphys.FIRST_BLOCK + 16 * i
-        struct.pack_into("<I", page, off - 4, 0x11)
+        struct.pack_into("<I", page, off - 4, mprphys.HEADER)
         struct.pack_into("<2I", page, off, *b)
     return bytes(page)
 
@@ -76,6 +76,10 @@ def test_check_page_rejects_a_page_whose_stock_blocks_differ():
     blocks[m.jpeg_index("M", "16:9", "FINE")] = (1, 2)
     with pytest.raises(mprphys.MprPhysError, match="not the estimate page"):
         mprphys.check_page(camera_page(blocks), expected_blocks())
+
+
+def test_header_is_a_16_byte_glibc_chunk_in_a_thread_arena():
+    assert mprphys.HEADER & ~0x7 == 16 and mprphys.HEADER & 0x1 and mprphys.HEADER & 0x4
 
 
 def test_check_page_rejects_a_page_without_the_allocation_headers():
