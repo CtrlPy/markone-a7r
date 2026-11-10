@@ -98,11 +98,13 @@ Outcome (camera, 2026-11-09): the aspect setting is `0x01070012` (1 = 3:2, 2 = 1
 - Live view with masks for all target formats, wheel to switch, remembers last format.
 - Writes an `.xmp` sidecar with crop for each RAW.
 - Reference apps that already drive live view: obs1dium/focusbracket, jonasjuffinger/TimeLapse.
-- Limitation: works only while the app is running.
+- Limitation: works only while the app is running. No app can start itself at power-on: the camera sends apps a broadcast on power-off only (`SyncAndroidService.SUSPEND`), not on power-on ([persistence](docs/findings/persistence.md) §2). An app could re-apply the RAM fixes after a battery pull only when opened by hand.
 
 **Stage 5 — patched firmware (last resort, on hold).**
 - Repack via fwtool `pack` from the user's own official update; minimal diffs; documented recovery path (official updater, then UART if ever needed).
 - On hold: repacked `nflasha15` images have bricked an ILCE-5000 and an ILCE-7RM2 with no known recovery ([prior art](docs/findings/community-prior-art.md)). This stage, and anything that touches the warm-boot image, is high risk and needs a separate decision by the owner.
+- Owner's criterion (2026-11-10): a format counts as delivered only if it survives the power switch and a battery pull. The only route found that meets it for the shot counter is an update whose Backup.bin templates carry the 1:1 geometry: no filesystem image is changed, and `fwtool pack` of the unmodified files reproduces Sony's DAT byte for byte ([persistence](docs/findings/persistence.md) §4). It is still a firmware flash, so high risk and not started.
+- Any firmware update, even the official 3.20 again, resets the 1:1 geometry in Backup.bin to zero (`a7r.firmup`, persistence §3).
 
 ## Tools
 

@@ -19,7 +19,7 @@ Research project, actively testing on one camera. No firmware has been flashed.
 How it works, in short:
 1. **Settings.** The aspect setting and the empty 1:1 image sizes are written once to the camera's settings (`Backup.bin`); these persist.
 2. **RAM fixes.** The camera computes its per-shot size estimates once at start-up and resumes from a boot snapshot, so the 1:1 estimates stay zero (counter 0, "no space on memory card"). We fill them in RAM, and apply a 4-byte RAM patch to `libObj.so` for the Image Size menu.
-3. **Persistence.** Both RAM changes survive the power switch (the camera suspends to RAM). A battery pull clears them; then two short service sessions apply them again.
+3. **Persistence.** Both RAM changes survive the power switch (the camera suspends to RAM). A battery pull clears them; then two short service sessions apply them again. An app cannot do this by itself at power-on, and any firmware update (even the official one again) resets the 1:1 sizes; see [persistence](docs/findings/persistence.md).
 
 Not working yet:
 - **Shutter-speed overlay.** In 1:1 it does not update while the dial is turned. The new speed is applied, so this is a display issue only.
@@ -69,6 +69,7 @@ Offline, no camera:
 - `a7r.formats` — plan the `Backup.bin` geometry values for a hidden aspect (and their rollback).
 - `a7r.mprtable` — layout of the still-size tables behind the shot counter.
 - `a7r.patch`, `a7r.patches` — verified byte patches for the user's own firmware files (SHA-256 checked).
+- `a7r.firmup` — list which `Backup.bin` values a firmware update would reset (Sony's merge rule).
 - `tools/extract_dat.py` — carve the DAT out of the 2023-style updater exe; `tools/ghidra/` — headless Ghidra scripts used for the findings.
 
 Camera tools (they use [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE); read each module's docstring first). The ones marked *terminal-free* use only Sony's service commands:

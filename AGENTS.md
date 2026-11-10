@@ -37,7 +37,8 @@ camera safety rules are in [CLAUDE.md](CLAUDE.md); read both before starting.
   - Offline: `backup` (Backup.bin parser, dump/diff CLI), `bkid` (BKID name → id
     tables from ELF files), `ids` (geometry property ids), `formats` (plan
     geometry values and rollbacks for a hidden aspect), `mprtable` (layout of
-    the shot-counter tables), `patch` / `patches` (SHA-256-checked byte patches).
+    the shot-counter tables), `patch` / `patches` (SHA-256-checked byte patches),
+    `firmup` (which Backup.bin values a firmware update keeps).
   - Camera, terminal-free (use these): `stage0` (read-only backup, updater
     mode), `stage1` (allow-listed Backup.bin writes with read-back),
     `mprphys` (check and fill the 1:1 shot-counter estimates in RAM),
