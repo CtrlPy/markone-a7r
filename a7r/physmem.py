@@ -58,3 +58,29 @@ def check_page_before_write(mem_page, file_page, page_off, old, new):
     if site == new:
         return "already"
     raise PhysMemError(f"patch site holds {site.hex()}, expected {old.hex()}")
+
+
+class FrameMismatch(PhysMemError):
+    """The physical frame does not show what the process sees (wrong or changing page)."""
+
+
+def check_live_page_before_write(phys_page, proc_page, page_off, old, new):
+    """Decide whether a data page of a running process may be changed through its frame.
+
+    For pages with no file to compare against (heap). The frame, read through
+    the physical address, must be identical to the page read through the
+    process, and the site must hold the expected old value ("write") or
+    already the new one ("already").
+    """
+    if len(phys_page) != PAGE or len(proc_page) != PAGE:
+        raise PhysMemError("page size mismatch")
+    if len(old) != len(new) or page_off < 0 or page_off + len(new) > PAGE:
+        raise PhysMemError("write site does not fit in the page")
+    if phys_page != proc_page:
+        raise FrameMismatch("physical frame differs from the process view of the page")
+    site = proc_page[page_off:page_off + len(old)]
+    if site == old:
+        return "write"
+    if site == new:
+        return "already"
+    raise PhysMemError(f"site holds {site.hex()}, expected {old.hex()}")
