@@ -67,3 +67,42 @@ def test_check_page_refuses_unexpected_patch_site():
     file_page = bytearray(page)
     with pytest.raises(PhysMemError, match="expected"):
         check_page_before_write(bytes(page), bytes(file_page), 0xA12, bytes.fromhex("032c00d9"), bytes.fromhex("022c00d0"))
+
+
+from a7r.physmem import check_live_page_before_write
+
+
+def _live_pages(site=b"\0" * 8, off=0x120):
+    page = bytearray(PAGE_BYTES)
+    page[off:off + len(site)] = site
+    return bytes(page), off
+
+
+def test_live_page_write_allowed_when_both_views_agree_and_hold_the_old_value():
+    page, off = _live_pages()
+    assert check_live_page_before_write(page, page, off, b"\0" * 8, b"\x01" * 8) == "write"
+
+
+def test_live_page_reports_already_when_the_new_value_is_there():
+    page, off = _live_pages(site=b"\x01" * 8)
+    assert check_live_page_before_write(page, page, off, b"\0" * 8, b"\x01" * 8) == "already"
+
+
+def test_live_page_rejects_a_frame_that_differs_from_the_process_view():
+    page, off = _live_pages()
+    other = bytearray(page)
+    other[0x800] ^= 0xFF
+    with pytest.raises(PhysMemError, match="process view"):
+        check_live_page_before_write(bytes(other), page, off, b"\0" * 8, b"\x01" * 8)
+
+
+def test_live_page_rejects_an_unexpected_value_at_the_site():
+    page, off = _live_pages(site=b"\x07" * 8)
+    with pytest.raises(PhysMemError, match="holds"):
+        check_live_page_before_write(page, page, off, b"\0" * 8, b"\x01" * 8)
+
+
+def test_live_page_rejects_a_site_that_crosses_the_page_end():
+    page, _ = _live_pages()
+    with pytest.raises(PhysMemError, match="page"):
+        check_live_page_before_write(page, page, 4092, b"\0" * 8, b"\x01" * 8)
